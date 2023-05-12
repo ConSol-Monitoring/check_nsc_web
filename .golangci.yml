@@ -1,0 +1,33 @@
+linters-settings:
+  gocritic:
+    enabled-tags:
+      - performance
+      - style
+      - experimental
+  gomoddirectives:
+    replace-local: true
+linters:
+  enable-all: true
+  fast: false
+  disable:
+    - cyclop
+    - exhaustivestruct
+    - exhaustruct
+    - funlen
+    - gochecknoglobals
+    - gocognit
+    - gocyclo
+    - goerr113
+    - maintidx
+    - nestif
+    - noctx
+    - nonamedreturns
+    - tagliatelle
+issues:
+  max-same-issues: 0
+  exclude-use-default: true
+  exclude:
+    - "mnd: Magic number: 2, in"
+    - "mnd: Magic number: 3, in"
+    - "mnd: Magic number: 10, in"
+    - "TLS InsecureSkipVerify set true"

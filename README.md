@@ -1,16 +1,16 @@
 # About *check_nsc_web*
 
-*check_nsc_web* collects check results from NSClient++ agents using its brand-new REST API. It is an alternative to check_nrpe et al.
-*check_nsc_web* can be used with any monitoring tool, that can use Nagios compatible plugins.
+*check_nsc_web* collects check results from NSClient++/SNClient+ agents using its REST API. It is an alternative to check_nrpe et al.
+*check_nsc_web* can be used with any monitoring tool, that can use Naemon/Nagios compatible plugins.
 
-To be easily portable, *check_nsc_web* is written in Go. Binary builds for Linux, Windows and MacOS are available in the ```build``` subdirectory.
+To be easily portable, *check_nsc_web* is written in Go.
 
 *check_nsc_web* is released under the GNU GPL v3.
 
 ## Usage examples
 * Alive check
 ```
-go run check_nsc_web.go -k -p "password from nsclient.ini" -u "https://<SERVER_RUNNING_NSCLIENT>:8443"
+go run ./cmd/check_nsc_web/main.go.go -k -p "password from nsclient.ini" -u "https://<SERVER_RUNNING_NSCLIENT>:8443"
 OK: NSClient API reachable on https://localhost:8443
 ```
 
@@ -60,7 +60,7 @@ Usage of ./check_nsc_web:
   check_nsc_web is a REST client for the NSClient++ webserver for querying
   and receiving check information over HTTPS.
 
-  Copyright 2016 Michael Kraus <Michael.Kraus@consol.de>
+  Original Author 2016 Michael Kraus
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by

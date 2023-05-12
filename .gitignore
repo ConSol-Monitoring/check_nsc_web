@@ -1,4 +1,13 @@
-_*
-.idea
-*.iml
 /check_nsc_web
+*.log
+*.exe
+*.linux.amd64
+*.darwin.aarch64
+*.freebsd.i386
+.vscode
+.vstags
+coverage.txt
+vendor/
+tools/
+go.work
+go.work.sum

@@ -194,7 +194,7 @@ govulncheck: tools
 	govulncheck ./...
 
 version:
-	OLDVERSION="$(shell grep "VERSION =" ./pkg/checknscweb/check.go | awk '{print $$3}' | tr -d '"')"; \
+	OLDVERSION="$(shell grep "VERSION =" ./pkg/checknscweb/check.go | awk '{print $$4}' | tr -d '"')"; \
 	NEWVERSION=$$(dialog --stdout --inputbox "New Version:" 0 0 "v$$OLDVERSION") && \
 		NEWVERSION=$$(echo $$NEWVERSION | sed "s/^v//g"); \
 		if [ "v$$OLDVERSION" = "v$$NEWVERSION" -o "x$$NEWVERSION" = "x" ]; then echo "no changes"; exit 1; fi; \

@@ -153,6 +153,10 @@ clean:
 		rm -f ./cmd/$$CMD/$$CMD; \
 	done
 	rm -f $(CMDS)
+	rm -f *.windows.*.exe
+	rm -f *.linux.*
+	rm -f *.darwin.*
+	rm -f *.freebsd.*
 	rm -f cover.out
 	rm -f coverage.html
 	rm -f coverage.txt

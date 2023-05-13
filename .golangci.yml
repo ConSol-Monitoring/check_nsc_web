@@ -20,7 +20,6 @@ linters:
     - goerr113
     - maintidx
     - nestif
-    - noctx
     - nonamedreturns
     - tagliatelle
 issues:

@@ -2,6 +2,7 @@ package checknscweb
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
@@ -139,7 +140,7 @@ var (
 	flagQuery      string
 )
 
-func Check(output *bytes.Buffer, osArgs []string) int {
+func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 	flags := flag.NewFlagSet("check_nsc_web", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.StringVar(&flagURL, "u", "", "NSCLient++ URL, for example https://10.1.2.3:8443.")
@@ -256,7 +257,7 @@ func Check(output *bytes.Buffer, osArgs []string) int {
 		Transport: hTransport,
 	}
 
-	req, err := http.NewRequest(http.MethodGet, urlStruct.String(), http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStruct.String(), http.NoBody)
 	if err != nil {
 		output.WriteString("UNKNOWN: " + err.Error())
 

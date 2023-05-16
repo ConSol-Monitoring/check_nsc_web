@@ -54,12 +54,12 @@ var usage = `
 // Query represents the nsclient response, which itself decomposes in lines in
 // which there may be several performance data.
 type PerfLine struct {
-	Value    *float64 `json:"value,omitempty"`
-	Unit     *string  `json:"unit,omitempty"`
-	Warning  *float64 `json:"warning,omitempty"`
-	Critical *float64 `json:"critical,omitempty"`
-	Minimum  *float64 `json:"minimum,omitempty"`
-	Maximum  *float64 `json:"maximum,omitempty"`
+	Value    *float64    `json:"value,omitempty"`
+	Unit     *string     `json:"unit,omitempty"`
+	Warning  interface{} `json:"warning,omitempty"`
+	Critical interface{} `json:"critical,omitempty"`
+	Minimum  *float64    `json:"minimum,omitempty"`
+	Maximum  *float64    `json:"maximum,omitempty"`
 }
 
 type ResultLine struct {
@@ -389,11 +389,11 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 			}
 
 			if perf.Warning != nil {
-				war = strconv.FormatFloat(*(perf.Warning), 'f', flagFloatround, 64)
+				war = fmt.Sprintf("%v", perf.Warning)
 			}
 
 			if perf.Critical != nil {
-				cri = strconv.FormatFloat(*(perf.Critical), 'f', flagFloatround, 64)
+				cri = fmt.Sprintf("%v", perf.Critical)
 			}
 
 			if perf.Minimum != nil {

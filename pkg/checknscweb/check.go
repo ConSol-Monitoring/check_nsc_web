@@ -38,7 +38,7 @@ import (
 	"github.com/namsral/flag"
 )
 
-const VERSION = "0.5.6"
+const VERSION = "0.6.0"
 
 var usage = `
   check_nsc_web is a REST client for the NSClient++/SNClient+ webserver for querying

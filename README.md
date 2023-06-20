@@ -60,21 +60,6 @@ Usage of ./check_nsc_web:
   check_nsc_web is a REST client for the NSClient++ webserver for querying
   and receiving check information over HTTPS.
 
-  Original Author 2016 Michael Kraus
-
-  This program is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  This program is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
   Example:
   check_nsc_web -p "password" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_cpu
 
@@ -84,24 +69,18 @@ Usage of ./check_nsc_web:
   check_nsc_web can and should be built with CGO_ENABLED=0
 
   Options:
-  -V Print program version.
-  -a string
-    API version of NSClient++ (legacy or 1). (default "legacy")
-  -f int
-    Round performance data float values to this number of digits. (default -1)
-  -j Print out JOSN response body.
-  -k Insecure mode - skip TLS verification.
-  -p string
-    NSClient++ webserver password.
-  -t int
-    Connection timeout in seconds, defaults to 10. (default 10)
-  -u string
-    NSCLient++ URL, for example https://10.1.2.3:8443.
-  -v Enable verbose output.
-  -x string
-    Extra text to appear in output.
-  -l string
-    NSClient++ webserver login. (default "admin")
-  -config file_location
-    Location of file with argument/query configuration
+  -V=false: Print program version.
+  -a="legacy": API version of NSClient++ (legacy or 1).
+  -config="": path to config file
+  -f=-1: Round performance data float values to this number of digits.
+  -j=false: Print out JSON response body.
+  -k=false: Insecure mode - skip TLS verification.
+  -l="admin": NSClient++ webserver login.
+  -p="": NSClient++ webserver password.
+  -query="": placeholder for query string from config file
+  -t=10: Connection timeout in seconds.
+  -tlsmax="": Maximum tls version used to connect.
+  -tlsmin="tls1.0": Minimum tls version used to connect.
+  -u="": NSCLient++ URL, for example https://10.1.2.3:8443.
+  -v=false: Enable verbose output.
 ```

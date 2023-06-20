@@ -1,5 +1,22 @@
 package checknscweb
 
+/*
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>
+ */
+
+// Original Author 2016 Michael Kraus
+
 import (
 	"bytes"
 	"context"
@@ -24,27 +41,14 @@ import (
 const VERSION = "0.5.6"
 
 var usage = `
-  check_nsc_web is a REST client for the NSClient++ webserver for querying
+  check_nsc_web is a REST client for the NSClient++/SNClient+ webserver for querying
   and receiving check information over HTTPS.
-
-  This program is free software: you can redistribute it and/or modify
-  it under the terms of the GNU General Public License as published by
-  the Free Software Foundation, either version 3 of the License, or
-  (at your option) any later version.
-
-  This program is distributed in the hope that it will be useful,
-  but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-  GNU General Public License for more details.
-
-  You should have received a copy of the GNU General Public License
-  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
   Example:
   check_nsc_web -p "password" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_cpu
 
   Usage:
-  check_nsc_web [options] [NSClient query parameters]
+  check_nsc_web [options] [query parameters]
 
   check_nsc_web can and should be built with CGO_ENABLED=0
 
@@ -134,6 +138,8 @@ var (
 	flagVerbose    bool
 	flagJSON       bool
 	flagVersion    bool
+	flagTLSMin     string
+	flagTLSMax     string
 	flagInsecure   bool
 	flagFloatround int
 	flagExtratext  string
@@ -152,6 +158,8 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 	flags.BoolVar(&flagJSON, "j", false, "Print out JSON response body.")
 	flags.BoolVar(&flagVersion, "V", false, "Print program version.")
 	flags.BoolVar(&flagInsecure, "k", false, "Insecure mode - skip TLS verification.")
+	flags.StringVar(&flagTLSMin, "tlsmin", "tls1.0", "Minimum tls version used to connect.")
+	flags.StringVar(&flagTLSMax, "tlsmax", "", "Maximum tls version used to connect.")
 	flags.IntVar(&flagFloatround, "f", -1, "Round performance data float values to this number of digits.")
 	flags.Usage = func() {
 		output.WriteString("check_nsc_web v" + VERSION)
@@ -239,10 +247,30 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 		}
 	}
 
+	tlsMin := uint16(tls.VersionTLS10)
+	if flagTLSMin != "" {
+		tlsMin, err = parseTLSVersion(flagTLSMin)
+		if err != nil {
+			output.WriteString("UNKNOWN: -tlsmin: " + err.Error())
+
+			return (3)
+		}
+	}
+
+	tlsMax := uint16(0)
+	if flagTLSMax != "" {
+		tlsMax, err = parseTLSVersion(flagTLSMax)
+		if err != nil {
+			output.WriteString("UNKNOWN: -tlsmax: " + err.Error())
+
+			return (3)
+		}
+	}
+
 	hTransport := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			MinVersion:         tls.VersionTLS10,
-			MaxVersion:         tls.VersionTLS12,
+			MinVersion:         tlsMin,
+			MaxVersion:         tlsMax,
 			InsecureSkipVerify: flagInsecure,
 		},
 		Dial: (&net.Dialer{
@@ -435,4 +463,23 @@ func extractHTTPResponse(response *http.Response) (contents []byte, err error) {
 	}
 
 	return
+}
+
+func parseTLSVersion(version string) (uint16, error) {
+	switch strings.ToLower(version) {
+	case "":
+		return 0, nil
+	case "tls10", "tls1.0":
+		return tls.VersionTLS10, nil
+	case "tls11", "tls1.1":
+		return tls.VersionTLS11, nil
+	case "tls12", "tls1.2":
+		return tls.VersionTLS12, nil
+	case "tls13", "tls1.3":
+		return tls.VersionTLS13, nil
+	default:
+		err := fmt.Errorf("cannot parse %s into tls version, supported values are: tls1.0, tls1.1, tls1.2, tls1.3", version)
+
+		return 0, err
+	}
 }

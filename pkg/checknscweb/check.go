@@ -146,7 +146,7 @@ var (
 	flagQuery      string
 )
 
-func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
+func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	flags := flag.NewFlagSet("check_nsc_web", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.StringVar(&flagURL, "u", "", "NSCLient++ URL, for example https://10.1.2.3:8443.")
@@ -162,8 +162,8 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 	flags.StringVar(&flagTLSMax, "tlsmax", "", "Maximum tls version used to connect.")
 	flags.IntVar(&flagFloatround, "f", -1, "Round performance data float values to this number of digits.")
 	flags.Usage = func() {
-		output.WriteString("check_nsc_web v" + VERSION)
-		output.WriteString(usage)
+		fmt.Fprintf(output, "check_nsc_web v%s", VERSION)
+		fmt.Fprintf(output, "%s", usage)
 		flags.PrintDefaults()
 	}
 
@@ -177,7 +177,7 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 	}
 
 	if flagVersion {
-		output.WriteString("check_nsc_web v" + VERSION)
+		fmt.Fprintf(output, "check_nsc_web v%s", VERSION)
 
 		return (3)
 	}
@@ -209,7 +209,7 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 
 	urlStruct, err := url.Parse(flagURL)
 	if err != nil {
-		output.WriteString("UNKNOWN: " + err.Error())
+		fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
 
 		return (3)
 	}
@@ -238,7 +238,7 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 					param.WriteString(url.QueryEscape(p[0]) + "=" + url.QueryEscape(p[1]))
 				}
 				if err != nil {
-					output.WriteString("UNKNOWN: " + err.Error())
+					fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
 
 					return (3)
 				}
@@ -251,7 +251,7 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 	if flagTLSMin != "" {
 		tlsMin, err = parseTLSVersion(flagTLSMin)
 		if err != nil {
-			output.WriteString("UNKNOWN: -tlsmin: " + err.Error())
+			fmt.Fprintf(output, "UNKNOWN: -tlsmin: %s", err.Error())
 
 			return (3)
 		}
@@ -261,7 +261,7 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 	if flagTLSMax != "" {
 		tlsMax, err = parseTLSVersion(flagTLSMax)
 		if err != nil {
-			output.WriteString("UNKNOWN: -tlsmax: " + err.Error())
+			fmt.Fprintf(output, "UNKNOWN: -tlsmax: %s", err.Error())
 
 			return (3)
 		}
@@ -287,7 +287,7 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStruct.String(), http.NoBody)
 	if err != nil {
-		output.WriteString("UNKNOWN: " + err.Error())
+		fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
 
 		return (3)
 	}
@@ -309,15 +309,15 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 
 	res, err := hClient.Do(req)
 	if err != nil {
-		output.WriteString("UNKNOWN: " + err.Error())
+		fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
 
 		return (3)
 	}
 
 	// check http status code
 	// getting 403 here means we're not allowed on the target (e.g. allowed hosts)
-	if res.Status == "403" {
-		output.WriteString("HTTP 403: Forbidden.")
+	if res.StatusCode != http.StatusOK {
+		fmt.Fprintf(output, "UNKNOWN: HTTP %s", res.Status)
 
 		return (3)
 	}
@@ -325,7 +325,7 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 	if flagVerbose {
 		dumpres, err := httputil.DumpResponse(res, true)
 		if err != nil {
-			fmt.Fprintf(output, "RESPONSE-ERROR:\n%s\n", err.Error())
+			fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err.Error())
 		}
 
 		fmt.Fprintf(output, "RESPONSE:\n%q\n", dumpres)
@@ -335,13 +335,15 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 
 	contents, err := extractHTTPResponse(res)
 	if err != nil {
-		fmt.Fprintf(output, "RESPONSE-ERROR:\n%s\n", err.Error())
+		fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err.Error())
+
+		return (3)
 	}
 
 	hClient.CloseIdleConnections()
 
 	if len(args) == 0 {
-		output.WriteString("OK: NSClient API reachable on " + flagURL)
+		fmt.Fprintf(output, "OK: NSClient API reachable on %s", flagURL)
 
 		return (0)
 	}
@@ -367,7 +369,7 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 			if flagVerbose {
 				fmt.Fprintf(output, "QUERY RESULT:\n%+v\n", queryLeg)
 			}
-			output.WriteString("UNKNOWN: The resultpayload size is 0")
+			fmt.Fprintf(output, "UNKNOWN: The resultpayload size is 0")
 
 			return (3)
 		}
@@ -382,15 +384,13 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 			return (3)
 		}
 
-		output.Write(jsonStr)
+		fmt.Fprintf(output, "%s", jsonStr)
 
 		return (0)
 	}
 
-	var (
-		nagiosMessage  string
-		nagiosPerfdata bytes.Buffer
-	)
+	nagiosMessage := ""
+	nagiosPerfdata := &bytes.Buffer{}
 
 	for _, l := range queryResult.Lines {
 		nagiosMessage = strings.TrimSpace(l.Message)
@@ -432,14 +432,14 @@ func Check(ctx context.Context, output *bytes.Buffer, osArgs []string) int {
 				max = strconv.FormatFloat(*(perf.Maximum), 'f', flagFloatround, 64)
 			}
 
-			nagiosPerfdata.WriteString(" '" + perfName + "'=" + val + uni + ";" + war + ";" + cri + ";" + min + ";" + max)
+			fmt.Fprintf(nagiosPerfdata, "'%s'=%s%s;%s;%s;%s;%s", perfName, val, uni, war, cri, min, max)
 		}
 	}
 
 	if nagiosPerfdata.Len() == 0 {
-		output.WriteString(nagiosMessage + " " + flagExtratext)
+		fmt.Fprintf(output, "%s %s", nagiosMessage, flagExtratext)
 	} else {
-		output.WriteString(nagiosMessage + " " + flagExtratext + "|" + strings.TrimSpace(nagiosPerfdata.String()))
+		fmt.Fprintf(output, "%s %s|%s", nagiosMessage, flagExtratext, strings.TrimSpace(nagiosPerfdata.String()))
 	}
 
 	return (queryResult.Result)

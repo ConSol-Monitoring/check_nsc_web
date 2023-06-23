@@ -58,7 +58,7 @@ var usage = `
 // Query represents the nsclient response, which itself decomposes in lines in
 // which there may be several performance data.
 type PerfLine struct {
-	Value    *float64    `json:"value,omitempty"`
+	Value    interface{} `json:"value,omitempty"`
 	Unit     *string     `json:"unit,omitempty"`
 	Warning  interface{} `json:"warning,omitempty"`
 	Critical interface{} `json:"critical,omitempty"`
@@ -390,7 +390,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	}
 
 	nagiosMessage := ""
-	nagiosPerfdata := &bytes.Buffer{}
+	nagiosPerfdata := []string{}
 
 	for _, l := range queryResult.Lines {
 		nagiosMessage = strings.TrimSpace(l.Message)
@@ -407,7 +407,14 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			)
 
 			if perf.Value != nil {
-				val = strconv.FormatFloat(*(perf.Value), 'f', flagFloatround, 64)
+				switch v := perf.Value.(type) {
+				case float64:
+					val = strconv.FormatFloat(v, 'f', flagFloatround, 64)
+				case string:
+					val = v
+				default:
+					fmt.Fprintf(output, "UNKNOWN: json error: unknown value type: %T", v)
+				}
 			} else {
 				continue
 			}
@@ -432,14 +439,14 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 				max = strconv.FormatFloat(*(perf.Maximum), 'f', flagFloatround, 64)
 			}
 
-			fmt.Fprintf(nagiosPerfdata, "'%s'=%s%s;%s;%s;%s;%s", perfName, val, uni, war, cri, min, max)
+			nagiosPerfdata = append(nagiosPerfdata, fmt.Sprintf("'%s'=%s%s;%s;%s;%s;%s", perfName, val, uni, war, cri, min, max))
 		}
 	}
 
-	if nagiosPerfdata.Len() == 0 {
+	if len(nagiosPerfdata) == 0 {
 		fmt.Fprintf(output, "%s %s", nagiosMessage, flagExtratext)
 	} else {
-		fmt.Fprintf(output, "%s %s|%s", nagiosMessage, flagExtratext, strings.TrimSpace(nagiosPerfdata.String()))
+		fmt.Fprintf(output, "%s %s|%s", nagiosMessage, flagExtratext, strings.TrimSpace(strings.Join(nagiosPerfdata, " ")))
 	}
 
 	return (queryResult.Result)

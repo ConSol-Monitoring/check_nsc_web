@@ -31,6 +31,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -395,7 +396,17 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	for _, l := range queryResult.Lines {
 		nagiosMessage = strings.TrimSpace(l.Message)
 
-		for perfName, perf := range l.Perf {
+		// iterate by sorted sortedPerfLabel, otherwise the order of performance label is different every time
+		sortedPerfLabel := make([]string, 0, len(l.Perf))
+
+		for k := range l.Perf {
+			sortedPerfLabel = append(sortedPerfLabel, k)
+		}
+
+		sort.Strings(sortedPerfLabel)
+
+		for _, perfName := range sortedPerfLabel {
+			perf := l.Perf[perfName]
 			// REFERENCE 'label'=value[UOM];[warn];[crit];[min];[max]
 			var (
 				val string

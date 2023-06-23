@@ -393,20 +393,20 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	nagiosMessage := ""
 	nagiosPerfdata := []string{}
 
-	for _, l := range queryResult.Lines {
-		nagiosMessage = strings.TrimSpace(l.Message)
+	for _, line := range queryResult.Lines {
+		nagiosMessage = strings.TrimSpace(line.Message)
 
 		// iterate by sorted sortedPerfLabel, otherwise the order of performance label is different every time
-		sortedPerfLabel := make([]string, 0, len(l.Perf))
+		sortedPerfLabel := make([]string, 0, len(line.Perf))
 
-		for k := range l.Perf {
+		for k := range line.Perf {
 			sortedPerfLabel = append(sortedPerfLabel, k)
 		}
 
 		sort.Strings(sortedPerfLabel)
 
 		for _, perfName := range sortedPerfLabel {
-			perf := l.Perf[perfName]
+			perf := line.Perf[perfName]
 			// REFERENCE 'label'=value[UOM];[warn];[crit];[min];[max]
 			var (
 				val string
@@ -418,13 +418,13 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			)
 
 			if perf.Value != nil {
-				switch v := perf.Value.(type) {
+				switch perfVal := perf.Value.(type) {
 				case float64:
-					val = strconv.FormatFloat(v, 'f', flagFloatround, 64)
+					val = strconv.FormatFloat(perfVal, 'f', flagFloatround, 64)
 				case string:
-					val = v
+					val = perfVal
 				default:
-					fmt.Fprintf(output, "UNKNOWN: json error: unknown value type: %T", v)
+					fmt.Fprintf(output, "UNKNOWN: json error: unknown value type: %T", perfVal)
 				}
 			} else {
 				continue

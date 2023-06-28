@@ -130,24 +130,24 @@ func (q QueryLeg) toV1() *QueryV1 {
 	return qV1
 }
 
-var (
-	flagURL        string
-	flagLogin      string
-	flagPassword   string
-	flagAPIVersion string
-	flagTimeout    int
-	flagVerbose    bool
-	flagJSON       bool
-	flagVersion    bool
-	flagTLSMin     string
-	flagTLSMax     string
-	flagInsecure   bool
-	flagFloatround int
-	flagExtratext  string
-	flagQuery      string
-)
-
 func Check(ctx context.Context, output io.Writer, osArgs []string) int {
+	var (
+		flagURL        string
+		flagLogin      string
+		flagPassword   string
+		flagAPIVersion string
+		flagTimeout    int
+		flagVerbose    bool
+		flagJSON       bool
+		flagVersion    bool
+		flagTLSMin     string
+		flagTLSMax     string
+		flagInsecure   bool
+		flagFloatround int
+		flagExtratext  string
+		flagQuery      string
+	)
+
 	flags := flag.NewFlagSet("check_nsc_web", flag.ContinueOnError)
 	flags.SetOutput(output)
 	flags.StringVar(&flagURL, "u", "", "NSCLient++ URL, for example https://10.1.2.3:8443.")

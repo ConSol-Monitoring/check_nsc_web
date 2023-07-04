@@ -57,30 +57,41 @@ Please note, that everything after query will be *appended* to existing query ar
 ```
 Usage of ./check_nsc_web:
 
-  check_nsc_web is a REST client for the NSClient++ webserver for querying
+  check_nsc_web is a REST client for the NSClient++/SNClient+ webserver for querying
   and receiving check information over HTTPS.
 
   Example:
   check_nsc_web -p "password" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_cpu
 
+  check_nsc_web -p "password" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_drivesize disk=c
+
   Usage:
-  check_nsc_web [options] [NSClient query parameters]
+  check_nsc_web [options] [query parameters]
 
   check_nsc_web can and should be built with CGO_ENABLED=0
 
   Options:
-  -V=false: Print program version.
-  -a="legacy": API version of NSClient++ (legacy or 1).
-  -config="": path to config file
-  -f=-1: Round performance data float values to this number of digits.
-  -j=false: Print out JSON response body.
-  -k=false: Insecure mode - skip TLS verification.
-  -l="admin": NSClient++ webserver login.
-  -p="": NSClient++ webserver password.
-  -query="": placeholder for query string from config file
-  -t=10: Connection timeout in seconds.
-  -tlsmax="": Maximum tls version used to connect.
-  -tlsmin="tls1.0": Minimum tls version used to connect.
-  -u="": NSCLient++ URL, for example https://10.1.2.3:8443.
-  -v=false: Enable verbose output.
+    -u <url>                 SNClient/NSCLient++ URL, for example https://10.1.2.3:8443
+    -t <seconds>             Connection timeout in seconds. Default: 10
+    -a <api version>         API version of SNClient/NSClient++ (legacy or 1) Default: legacy
+    -l <username>            REST webserver login. Default: admin
+    -p <password>            REST webserver password
+    -config <file>           Path to config file
+
+  TLS/SSL Options:
+    -C <pem file>            Use client certificate (pem) to connect. Must provide -K as well
+    -K <key file>            Use client certificate key file to connect
+    -ca <pem file>           Use certificate ca to verify server certificate
+    -tlsmax <string>         Maximum tls version used to connect
+    -tlsmin <string>         Minimum tls version used to connect. Default: tls1.0
+    -tlshostname <string>    Use this servername when verifying tls server name
+    -k                       Insecure mode - skip TLS verification
+
+  Output Options:
+    -h                       Print help
+    -v                       Enable verbose output
+    -V                       Print program version
+    -f <integer>             Round performance data float values to this number of digits. Default: -1
+    -j                       Print out JSON response body
+    -query <string>          Placeholder for query string from config file
 ```

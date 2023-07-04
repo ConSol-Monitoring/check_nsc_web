@@ -22,6 +22,7 @@ linters:
     - nestif
     - nonamedreturns
     - tagliatelle
+    - maligned
 issues:
   max-same-issues: 0
   exclude-use-default: true
@@ -29,4 +30,3 @@ issues:
     - "mnd: Magic number: 2, in"
     - "mnd: Magic number: 3, in"
     - "mnd: Magic number: 10, in"
-    - "TLS InsecureSkipVerify set true"

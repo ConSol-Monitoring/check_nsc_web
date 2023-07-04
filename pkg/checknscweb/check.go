@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -31,6 +32,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,19 +43,45 @@ import (
 
 const VERSION = "0.6.1"
 
-var usage = `
+const usage = `Usage:
+  check_nsc_web [options] [query parameters]
+
+Description:
   check_nsc_web is a REST client for the NSClient++/SNClient+ webserver for querying
   and receiving check information over HTTPS.
 
-  Example:
+Version:
+  check_nsc_web v` + VERSION + `
+
+Example:
   check_nsc_web -p "password" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_cpu
 
-  Usage:
-  check_nsc_web [options] [query parameters]
+  check_nsc_web -p "password" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_drivesize disk=c
 
-  check_nsc_web can and should be built with CGO_ENABLED=0
+Options:
+  -u <url>                 SNClient/NSCLient++ URL, for example https://10.1.2.3:8443
+  -t <seconds>             Connection timeout in seconds. Default: 10
+  -a <api version>         API version of SNClient/NSClient++ (legacy or 1) Default: legacy
+  -l <username>            REST webserver login. Default: admin
+  -p <password>            REST webserver password
+  -config <file>           Path to config file
 
-  Options:
+TLS/SSL Options:
+  -C <pem file>            Use client certificate (pem) to connect. Must provide -K as well
+  -K <key file>            Use client certificate key file to connect
+  -ca <pem file>           Use certificate ca to verify server certificate
+  -tlsmax <string>         Maximum tls version used to connect
+  -tlsmin <string>         Minimum tls version used to connect. Default: tls1.0
+  -tlshostname <string>    Use this servername when verifying tls server name
+  -k                       Insecure mode - skip TLS verification
+
+Output Options:
+  -h                       Print help
+  -v                       Enable verbose output
+  -V                       Print program version
+  -f <integer>             Round performance data float values to this number of digits. Default: -1
+  -j                       Print out JSON response body
+  -query <string>          Placeholder for query string from config file
 `
 
 // Query represents the nsclient response, which itself decomposes in lines in
@@ -130,54 +158,61 @@ func (q QueryLeg) toV1() *QueryV1 {
 	return qV1
 }
 
-func Check(ctx context.Context, output io.Writer, osArgs []string) int {
-	var (
-		flagURL        string
-		flagLogin      string
-		flagPassword   string
-		flagAPIVersion string
-		flagTimeout    int
-		flagVerbose    bool
-		flagJSON       bool
-		flagVersion    bool
-		flagTLSMin     string
-		flagTLSMax     string
-		flagInsecure   bool
-		flagFloatround int
-		flagExtratext  string
-		flagQuery      string
-	)
+type flagSet struct {
+	URL           string
+	Login         string
+	Password      string
+	APIVersion    string
+	Timeout       int
+	Verbose       bool
+	JSON          bool
+	Version       bool
+	TLSMin        string
+	TLSMax        string
+	TLSServerName string
+	TLSCA         string
+	Insecure      bool
+	ClientCert    string
+	ClientKey     string
+	Floatround    int
+	Extratext     string
+	Query         string
+}
 
-	flags := flag.NewFlagSet("check_nsc_web", flag.ContinueOnError)
-	flags.SetOutput(output)
-	flags.StringVar(&flagURL, "u", "", "NSCLient++ URL, for example https://10.1.2.3:8443.")
-	flags.StringVar(&flagLogin, "l", "admin", "NSClient++ webserver login.")
-	flags.StringVar(&flagPassword, "p", "", "NSClient++ webserver password.")
-	flags.StringVar(&flagAPIVersion, "a", "legacy", "API version of NSClient++ (legacy or 1).")
-	flags.IntVar(&flagTimeout, "t", 10, "Connection timeout in seconds.")
-	flags.BoolVar(&flagVerbose, "v", false, "Enable verbose output.")
-	flags.BoolVar(&flagJSON, "j", false, "Print out JSON response body.")
-	flags.BoolVar(&flagVersion, "V", false, "Print program version.")
-	flags.BoolVar(&flagInsecure, "k", false, "Insecure mode - skip TLS verification.")
-	flags.StringVar(&flagTLSMin, "tlsmin", "tls1.0", "Minimum tls version used to connect.")
-	flags.StringVar(&flagTLSMax, "tlsmax", "", "Maximum tls version used to connect.")
-	flags.IntVar(&flagFloatround, "f", -1, "Round performance data float values to this number of digits.")
-	flags.Usage = func() {
-		fmt.Fprintf(output, "check_nsc_web v%s", VERSION)
+func Check(ctx context.Context, output io.Writer, osArgs []string) int {
+	flags := flagSet{}
+	flagSet := flag.NewFlagSet("check_nsc_web", flag.ContinueOnError)
+	flagSet.SetOutput(output)
+	flagSet.StringVar(&flags.URL, "u", "", "SNClient URL, for example https://10.1.2.3:8443")
+	flagSet.StringVar(&flags.Login, "l", "admin", "SNClient webserver login")
+	flagSet.StringVar(&flags.Password, "p", "", "SNClient webserver password")
+	flagSet.StringVar(&flags.APIVersion, "a", "legacy", "API version of SNClient (legacy or 1)")
+	flagSet.IntVar(&flags.Timeout, "t", 10, "Connection timeout in seconds")
+	flagSet.BoolVar(&flags.Verbose, "v", false, "Enable verbose output")
+	flagSet.BoolVar(&flags.JSON, "j", false, "Print out JSON response body")
+	flagSet.BoolVar(&flags.Version, "V", false, "Print program version")
+	flagSet.BoolVar(&flags.Insecure, "k", false, "Insecure mode - skip TLS verification")
+	flagSet.StringVar(&flags.TLSMin, "tlsmin", "tls1.0", "Minimum tls version used to connect")
+	flagSet.StringVar(&flags.TLSMax, "tlsmax", "", "Maximum tls version used to connect")
+	flagSet.StringVar(&flags.TLSServerName, "tlshostname", "", "Use this servername when verifying tls server name")
+	flagSet.StringVar(&flags.ClientCert, "C", "", "Use client certificate (pem) to connect. Must provide -K as well")
+	flagSet.StringVar(&flags.ClientKey, "K", "", "Use client certificate key file to connect")
+	flagSet.StringVar(&flags.TLSCA, "ca", "", "Use certificate ca to verify server certificate")
+	flagSet.IntVar(&flags.Floatround, "f", -1, "Round performance data float values to this number of digits")
+	flagSet.Usage = func() {
 		fmt.Fprintf(output, "%s", usage)
-		flags.PrintDefaults()
 	}
 
 	// These flags support loading config from file using "-config FILENAME"
-	flags.StringVar(&flagQuery, "query", "", "placeholder for query string from config file")
-	flags.String(flag.DefaultConfigFlagname, "", "path to config file")
+	flagSet.StringVar(&flags.Query, "query", "", "placeholder for query string from config file")
+	flagSet.String(flag.DefaultConfigFlagname, "", "path to config file")
 
-	err := flags.Parse(osArgs)
+	err := flagSet.Parse(osArgs)
 	if errors.Is(err, flag.ErrHelp) {
 		return (3)
 	}
 
-	if flagVersion {
+	if flags.Version {
 		fmt.Fprintf(output, "check_nsc_web v%s", VERSION)
 
 		return (3)
@@ -185,30 +220,29 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 
 	seen := make(map[string]bool)
 
-	flags.Visit(func(f *flag.Flag) {
+	flagSet.Visit(func(f *flag.Flag) {
 		seen[f.Name] = true
 	})
 
 	for _, req := range []string{"u", "p"} {
 		if !seen[req] {
 			fmt.Fprintf(output, "UNKNOWN: Missing required -%s argument\n", req)
-			fmt.Fprintf(output, "Usage of check_nsc_web:\n")
-			flags.Usage()
+			flagSet.Usage()
 
 			return (3)
 		}
 	}
 
-	args := flags.Args()
+	args := flagSet.Args()
 	// Has there a flag "query" been provided in the config file? Transform it into slice and append it to Args()
 	if seen["query"] {
-		q := strings.Split(flagQuery, " ")
+		q := strings.Split(flags.Query, " ")
 		args = append(args, q...)
 	}
 
-	timeout := time.Second * time.Duration(flagTimeout)
+	timeout := time.Second * time.Duration(flags.Timeout)
 
-	urlStruct, err := url.Parse(flagURL)
+	urlStruct, err := url.Parse(flags.URL)
 	if err != nil {
 		fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
 
@@ -218,7 +252,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	if len(args) == 0 {
 		urlStruct.Path += "/"
 	} else {
-		if flagAPIVersion == "1" {
+		if flags.APIVersion == "1" {
 			urlStruct.Path += "/api/v1/queries/" + args[0] + "/commands/execute"
 		} else {
 			urlStruct.Path += "/query/" + args[0]
@@ -248,32 +282,15 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		}
 	}
 
-	tlsMin := uint16(tls.VersionTLS10)
-	if flagTLSMin != "" {
-		tlsMin, err = parseTLSVersion(flagTLSMin)
-		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN: -tlsmin: %s", err.Error())
+	tlsConfig, err := getTLSClientConfig(output, &flags)
+	if err != nil {
+		fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
 
-			return (3)
-		}
-	}
-
-	tlsMax := uint16(0)
-	if flagTLSMax != "" {
-		tlsMax, err = parseTLSVersion(flagTLSMax)
-		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN: -tlsmax: %s", err.Error())
-
-			return (3)
-		}
+		return (3)
 	}
 
 	hTransport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			MinVersion:         tlsMin,
-			MaxVersion:         tlsMax,
-			InsecureSkipVerify: flagInsecure,
-		},
+		TLSClientConfig: tlsConfig,
 		Dial: (&net.Dialer{
 			Timeout: timeout,
 		}).Dial,
@@ -293,13 +310,13 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		return (3)
 	}
 
-	if flagAPIVersion == "1" && flagLogin != "" {
-		req.Header.Add("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(flagLogin+":"+flagPassword)))
+	if flags.APIVersion == "1" && flags.Login != "" {
+		req.Header.Add("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(flags.Login+":"+flags.Password)))
 	} else {
-		req.Header.Add("password", flagPassword)
+		req.Header.Add("password", flags.Password)
 	}
 
-	if flagVerbose {
+	if flags.Verbose {
 		dumpreq, err := httputil.DumpRequestOut(req, true)
 		if err != nil {
 			fmt.Fprintf(output, "REQUEST-ERROR:\n%s\n", err.Error())
@@ -323,7 +340,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		return (3)
 	}
 
-	if flagVerbose {
+	if flags.Verbose {
 		dumpres, err := httputil.DumpResponse(res, true)
 		if err != nil {
 			fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err.Error())
@@ -344,13 +361,13 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	hClient.CloseIdleConnections()
 
 	if len(args) == 0 {
-		fmt.Fprintf(output, "OK: NSClient API reachable on %s", flagURL)
+		fmt.Fprintf(output, "OK: REST API reachable on %s", flags.URL)
 
 		return (0)
 	}
 
 	queryResult := new(QueryV1)
-	if flagAPIVersion == "1" {
+	if flags.APIVersion == "1" {
 		err = json.Unmarshal(contents, &queryResult)
 		if err != nil {
 			fmt.Fprintf(output, "UNKNOWN: json error: %s", err.Error())
@@ -367,7 +384,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		}
 
 		if len(queryLeg.Payload) == 0 {
-			if flagVerbose {
+			if flags.Verbose {
 				fmt.Fprintf(output, "QUERY RESULT:\n%+v\n", queryLeg)
 			}
 			fmt.Fprintf(output, "UNKNOWN: The resultpayload size is 0")
@@ -377,7 +394,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		queryResult = queryLeg.toV1()
 	}
 
-	if flagJSON {
+	if flags.JSON {
 		jsonStr, err := json.Marshal(queryResult)
 		if err != nil {
 			fmt.Fprintf(output, "UNKNOWN: json error: %s", err.Error())
@@ -420,7 +437,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			if perf.Value != nil {
 				switch perfVal := perf.Value.(type) {
 				case float64:
-					val = strconv.FormatFloat(perfVal, 'f', flagFloatround, 64)
+					val = strconv.FormatFloat(perfVal, 'f', flags.Floatround, 64)
 				case string:
 					val = perfVal
 				default:
@@ -443,11 +460,11 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			}
 
 			if perf.Minimum != nil {
-				min = strconv.FormatFloat(*(perf.Minimum), 'f', flagFloatround, 64)
+				min = strconv.FormatFloat(*(perf.Minimum), 'f', flags.Floatround, 64)
 			}
 
 			if perf.Maximum != nil {
-				max = strconv.FormatFloat(*(perf.Maximum), 'f', flagFloatround, 64)
+				max = strconv.FormatFloat(*(perf.Maximum), 'f', flags.Floatround, 64)
 			}
 
 			nagiosPerfdata = append(nagiosPerfdata, fmt.Sprintf("'%s'=%s%s;%s;%s;%s;%s", perfName, val, uni, war, cri, min, max))
@@ -455,9 +472,9 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	}
 
 	if len(nagiosPerfdata) == 0 {
-		fmt.Fprintf(output, "%s %s", nagiosMessage, flagExtratext)
+		fmt.Fprintf(output, "%s %s", nagiosMessage, flags.Extratext)
 	} else {
-		fmt.Fprintf(output, "%s %s|%s", nagiosMessage, flagExtratext, strings.TrimSpace(strings.Join(nagiosPerfdata, " ")))
+		fmt.Fprintf(output, "%s %s|%s", nagiosMessage, flags.Extratext, strings.TrimSpace(strings.Join(nagiosPerfdata, " ")))
 	}
 
 	return (queryResult.Result)
@@ -500,4 +517,67 @@ func parseTLSVersion(version string) (uint16, error) {
 
 		return 0, err
 	}
+}
+
+func getTLSClientConfig(output io.Writer, flags *flagSet) (cfg *tls.Config, err error) {
+	cfg = &tls.Config{
+		InsecureSkipVerify: flags.Insecure, //nolint:gosec // may be true, but default is false
+	}
+
+	tlsMin := uint16(tls.VersionTLS10)
+	if flags.TLSMin != "" {
+		tlsMin, err = parseTLSVersion(flags.TLSMin)
+		if err != nil {
+			return nil, fmt.Errorf("tlsmin: %s", err.Error())
+		}
+	}
+
+	cfg.MinVersion = tlsMin
+
+	tlsMax := uint16(0)
+	if flags.TLSMax != "" {
+		tlsMax, err = parseTLSVersion(flags.TLSMax)
+		if err != nil {
+			return nil, fmt.Errorf("tlsmax: %s", err.Error())
+		}
+	}
+
+	cfg.MaxVersion = tlsMax
+
+	if flags.ClientCert != "" {
+		if flags.ClientKey == "" {
+			return nil, fmt.Errorf("-K is required when using -C")
+		}
+
+		cer, err := tls.LoadX509KeyPair(flags.ClientCert, flags.ClientKey)
+		if err != nil {
+			return nil, fmt.Errorf("tls.LoadX509KeyPair %s / %s: %w", flags.ClientCert, flags.ClientKey, err)
+		}
+
+		cfg.Certificates = []tls.Certificate{cer}
+
+		if flags.Verbose {
+			fmt.Fprintf(output, "using client cert: %s\n", flags.ClientCert)
+			fmt.Fprintf(output, "using client key:  %s\n", flags.ClientKey)
+		}
+	}
+
+	if flags.TLSCA != "" {
+		caCert, err := os.ReadFile(flags.TLSCA)
+		if err != nil {
+			return nil, fmt.Errorf("readfile %s: %w", flags.TLSCA, err)
+		}
+
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(caCert)
+		cfg.RootCAs = caCertPool
+
+		if flags.Verbose {
+			fmt.Fprintf(output, "using ca: %s\n", flags.TLSCA)
+		}
+	}
+
+	cfg.ServerName = flags.TLSServerName
+
+	return cfg, nil
 }

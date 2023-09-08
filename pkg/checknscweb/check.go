@@ -363,6 +363,10 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	if len(args) == 0 {
 		fmt.Fprintf(output, "OK: REST API reachable on %s", flags.URL)
 
+		if flags.JSON {
+			fmt.Fprintf(output, "\n%s", contents)
+		}
+
 		return (0)
 	}
 

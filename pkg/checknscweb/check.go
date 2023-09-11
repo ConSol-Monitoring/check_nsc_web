@@ -81,6 +81,7 @@ Output Options:
   -V                       Print program version
   -f <integer>             Round performance data float values to this number of digits. Default: -1
   -j                       Print out JSON response body
+  -r                       Print raw result without pre/post processing
   -query <string>          Placeholder for query string from config file
 `
 
@@ -166,6 +167,7 @@ type flagSet struct {
 	Timeout       int
 	Verbose       bool
 	JSON          bool
+	RawOutput     bool
 	Version       bool
 	TLSMin        string
 	TLSMax        string
@@ -190,6 +192,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	flagSet.IntVar(&flags.Timeout, "t", 10, "Connection timeout in seconds")
 	flagSet.BoolVar(&flags.Verbose, "v", false, "Enable verbose output")
 	flagSet.BoolVar(&flags.JSON, "j", false, "Print out JSON response body")
+	flagSet.BoolVar(&flags.RawOutput, "r", false, "Print raw result without pre/post processing")
 	flagSet.BoolVar(&flags.Version, "V", false, "Print program version")
 	flagSet.BoolVar(&flags.Insecure, "k", false, "Insecure mode - skip TLS verification")
 	flagSet.StringVar(&flags.TLSMin, "tlsmin", "tls1.0", "Minimum tls version used to connect")
@@ -249,37 +252,50 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		return (3)
 	}
 
-	if len(args) == 0 {
-		urlStruct.Path += "/"
-	} else {
+	switch {
+	case flags.RawOutput:
+		if len(args) > 0 {
+			fmt.Fprintf(output, "UNKNOWN: no arguments supported in passthrough mode")
+
+			return (3)
+		}
+	case len(args) == 0:
+		if !strings.HasSuffix(urlStruct.Path, "/") {
+			urlStruct.Path += "/"
+		}
+	default:
 		if flags.APIVersion == "1" {
 			urlStruct.Path += "/api/v1/queries/" + args[0] + "/commands/execute"
 		} else {
 			urlStruct.Path += "/query/" + args[0]
 		}
-		if len(args) > 1 {
-			var param bytes.Buffer
-			for i, arg := range args {
-				if i == 0 {
-					continue
-				} else if i > 1 {
-					param.WriteString("&")
-				}
+	}
 
-				p := strings.SplitN(arg, "=", 2)
-				if len(p) == 1 {
-					param.WriteString(url.QueryEscape(p[0]))
-				} else {
-					param.WriteString(url.QueryEscape(p[0]) + "=" + url.QueryEscape(p[1]))
-				}
-				if err != nil {
-					fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
+	if len(args) > 1 {
+		var param bytes.Buffer
 
-					return (3)
-				}
+		for i, arg := range args {
+			if i == 0 {
+				continue
+			} else if i > 1 {
+				param.WriteString("&")
 			}
-			urlStruct.RawQuery = param.String()
+
+			p := strings.SplitN(arg, "=", 2)
+			if len(p) == 1 {
+				param.WriteString(url.QueryEscape(p[0]))
+			} else {
+				param.WriteString(url.QueryEscape(p[0]) + "=" + url.QueryEscape(p[1]))
+			}
+
+			if err != nil {
+				fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
+
+				return (3)
+			}
 		}
+
+		urlStruct.RawQuery = param.String()
 	}
 
 	tlsConfig, err := getTLSClientConfig(output, &flags)
@@ -332,14 +348,6 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		return (3)
 	}
 
-	// check http status code
-	// getting 403 here means we're not allowed on the target (e.g. allowed hosts)
-	if res.StatusCode != http.StatusOK {
-		fmt.Fprintf(output, "UNKNOWN: HTTP %s", res.Status)
-
-		return (3)
-	}
-
 	if flags.Verbose {
 		dumpres, err := httputil.DumpResponse(res, true)
 		if err != nil {
@@ -359,6 +367,25 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	}
 
 	hClient.CloseIdleConnections()
+
+	if flags.RawOutput {
+		fmt.Fprintf(output, "\n%s", contents)
+
+		switch res.StatusCode {
+		case http.StatusOK:
+			return (0)
+		default:
+			return (3)
+		}
+	}
+
+	// check http status code
+	// getting 403 here means we're not allowed on the target (e.g. allowed hosts)
+	if res.StatusCode != http.StatusOK {
+		fmt.Fprintf(output, "UNKNOWN: HTTP %s", res.Status)
+
+		return (3)
+	}
 
 	if len(args) == 0 {
 		fmt.Fprintf(output, "OK: REST API reachable on %s", flags.URL)

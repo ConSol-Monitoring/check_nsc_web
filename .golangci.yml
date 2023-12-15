@@ -11,6 +11,7 @@ linters:
   fast: false
   disable:
     - cyclop
+    - depguard
     - exhaustivestruct
     - exhaustruct
     - funlen

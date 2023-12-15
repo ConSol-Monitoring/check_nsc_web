@@ -343,7 +343,11 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 
 	res, err := hClient.Do(req)
 	if err != nil {
-		fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
+		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
+			fmt.Fprintf(output, "UNKNOWN: check timed out after %s ( %s )\n%s", timeout.String(), flags.URL, err.Error())
+		} else {
+			fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
+		}
 
 		return (3)
 	}

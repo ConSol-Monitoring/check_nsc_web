@@ -141,18 +141,24 @@ func (q QueryLeg) toV1() *QueryV1 {
 
 	qV1.Command = q.Payload[0].Command
 	qV1.Result = ReturncodeMap[q.Payload[0].Result]
-	qV1.Lines = make([]ResultLine, len(q.Payload[0].Lines))
+	qV1.Lines = make([]ResultLine, 0)
 
-	for lineNr, line := range q.Payload[0].Lines {
-		qV1.Lines[lineNr].Message = line.Message
-		qV1.Lines[lineNr].Perf = make(map[string]PerfLine)
+	for _, line := range q.Payload[0].Lines {
+		qV1.Lines = append(qV1.Lines, ResultLine{
+			Message: line.Message,
+		})
 
 		for _, p := range line.Perf {
+			perfL := map[string]PerfLine{}
 			if p.FloatValue != nil {
-				qV1.Lines[lineNr].Perf[p.Alias] = *p.FloatValue
+				perfL[p.Alias] = *p.FloatValue
 			} else {
-				qV1.Lines[lineNr].Perf[p.Alias] = *p.IntValue
+				perfL[p.Alias] = *p.IntValue
 			}
+
+			qV1.Lines = append(qV1.Lines, ResultLine{
+				Perf: perfL,
+			})
 		}
 	}
 
@@ -446,7 +452,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	nagiosPerfdata := []string{}
 
 	for _, line := range queryResult.Lines {
-		nagiosMessage = strings.TrimSpace(line.Message)
+		nagiosMessage += strings.TrimSpace(line.Message)
 
 		// iterate by sorted sortedPerfLabel, otherwise the order of performance label is different every time
 		sortedPerfLabel := make([]string, 0, len(line.Perf))

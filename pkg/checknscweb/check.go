@@ -235,7 +235,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 
 	for _, req := range []string{"u", "p"} {
 		if !seen[req] {
-			fmt.Fprintf(output, "UNKNOWN: Missing required -%s argument\n", req)
+			fmt.Fprintf(output, "UNKNOWN - missing required -%s argument\n", req)
 			flagSet.Usage()
 
 			return (3)
@@ -253,7 +253,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 
 	urlStruct, err := url.Parse(flags.URL)
 	if err != nil {
-		fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
+		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
 		return (3)
 	}
@@ -261,7 +261,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	switch {
 	case flags.RawOutput:
 		if len(args) > 0 {
-			fmt.Fprintf(output, "UNKNOWN: no arguments supported in passthrough mode")
+			fmt.Fprintf(output, "UNKNOWN - no arguments supported in passthrough mode")
 
 			return (3)
 		}
@@ -295,7 +295,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			}
 
 			if err != nil {
-				fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
+				fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
 				return (3)
 			}
@@ -306,7 +306,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 
 	tlsConfig, err := getTLSClientConfig(output, &flags)
 	if err != nil {
-		fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
+		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
 		return (3)
 	}
@@ -327,7 +327,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStruct.String(), http.NoBody)
 	if err != nil {
-		fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
+		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
 		return (3)
 	}
@@ -350,9 +350,9 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	res, err := hClient.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
-			fmt.Fprintf(output, "UNKNOWN: check timed out after %s ( %s )\n%s", timeout.String(), flags.URL, err.Error())
+			fmt.Fprintf(output, "UNKNOWN - check timed out after %s ( %s )\n%s", timeout.String(), flags.URL, err.Error())
 		} else {
-			fmt.Fprintf(output, "UNKNOWN: %s", err.Error())
+			fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 		}
 
 		return (3)
@@ -392,13 +392,13 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	// check http status code
 	// getting 403 here means we're not allowed on the target (e.g. allowed hosts)
 	if res.StatusCode != http.StatusOK {
-		fmt.Fprintf(output, "UNKNOWN: HTTP %s", res.Status)
+		fmt.Fprintf(output, "UNKNOWN - HTTP %s", res.Status)
 
 		return (3)
 	}
 
 	if len(args) == 0 {
-		fmt.Fprintf(output, "OK: REST API reachable on %s", flags.URL)
+		fmt.Fprintf(output, "OK - REST API reachable on %s", flags.URL)
 
 		if flags.JSON {
 			fmt.Fprintf(output, "\n%s", contents)
@@ -411,7 +411,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	if flags.APIVersion == "1" {
 		err = json.Unmarshal(contents, &queryResult)
 		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN: json error: %s", err.Error())
+			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
 
 			return (3)
 		}
@@ -419,7 +419,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		queryLeg := new(QueryLeg)
 		err = json.Unmarshal(contents, &queryLeg)
 		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN: json error: %s", err.Error())
+			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
 
 			return (3)
 		}
@@ -428,7 +428,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			if flags.Verbose {
 				fmt.Fprintf(output, "QUERY RESULT:\n%+v\n", queryLeg)
 			}
-			fmt.Fprintf(output, "UNKNOWN: The resultpayload size is 0")
+			fmt.Fprintf(output, "UNKNOWN - The resultpayload size is 0")
 
 			return (3)
 		}
@@ -438,7 +438,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	if flags.JSON {
 		jsonStr, err := json.Marshal(queryResult)
 		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN: json error: %s", err.Error())
+			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
 
 			return (3)
 		}
@@ -482,7 +482,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 				case string:
 					val = perfVal
 				default:
-					fmt.Fprintf(output, "UNKNOWN: json error: unknown value type: %T", perfVal)
+					fmt.Fprintf(output, "UNKNOWN - json error: unknown value type: %T", perfVal)
 				}
 			} else {
 				continue

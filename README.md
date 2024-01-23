@@ -7,6 +7,18 @@ To be easily portable, *check_nsc_web* is written in Go.
 
 *check_nsc_web* is released under the GNU GPL v3.
 
+## Building the binaries
+
+### With docker
+
+```
+make docker
+```
+or to select a specific makefile target
+```
+make docker target=citest
+```
+
 ## Usage examples
 * Alive check
 ```

@@ -205,3 +205,7 @@ version:
 		sed -i -e 's/VERSION =.*/VERSION = "'$$NEWVERSION'"/g' cmd/*/*.go pkg/checknscweb/*.go
 
 check_nsc_web: build
+
+docker:
+	docker build -t dockerbuilder .
+	docker run -it --rm -e CGO_ENABLED=1 -v $(shell pwd):/go/src/app dockerbuilder make $(target)

@@ -151,10 +151,14 @@ func (q QueryLeg) toV1() *QueryV1 {
 
 		for _, p := range line.Perf {
 			perfL := map[string]PerfLine{}
-			if p.FloatValue != nil {
+
+			switch {
+			case p.FloatValue != nil:
 				perfL[p.Alias] = *p.FloatValue
-			} else {
+			case p.IntValue != nil:
 				perfL[p.Alias] = *p.IntValue
+			default:
+				continue
 			}
 
 			qV1.Lines = append(qV1.Lines, ResultLine{

@@ -43,7 +43,7 @@ import (
 
 const VERSION = "0.6.2"
 
-const usage = `Usage:
+const USAGE = `Usage:
   check_nsc_web [options] [query parameters]
 
 Description:
@@ -78,6 +78,7 @@ TLS/SSL Options:
 Output Options:
   -h                       Print help
   -v                       Enable verbose output
+  -vv                      Enable very verbose output (and log directly to stdout)
   -V                       Print program version
   -f <integer>             Round performance data float values to this number of digits. Default: -1
   -j                       Print out JSON response body
@@ -172,6 +173,7 @@ type flagSet struct {
 	APIVersion    string
 	Timeout       int
 	Verbose       bool
+	VeryVerbose   bool
 	JSON          bool
 	RawOutput     bool
 	Version       bool
@@ -197,6 +199,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	flagSet.StringVar(&flags.APIVersion, "a", "legacy", "API version of SNClient (legacy or 1)")
 	flagSet.IntVar(&flags.Timeout, "t", 10, "Connection timeout in seconds")
 	flagSet.BoolVar(&flags.Verbose, "v", false, "Enable verbose output")
+	flagSet.BoolVar(&flags.VeryVerbose, "vv", false, "Enable very verbose output (and log directly to stdout)")
 	flagSet.BoolVar(&flags.JSON, "j", false, "Print out JSON response body")
 	flagSet.BoolVar(&flags.RawOutput, "r", false, "Print raw result without pre/post processing")
 	flagSet.BoolVar(&flags.Version, "V", false, "Print program version")
@@ -209,7 +212,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	flagSet.StringVar(&flags.TLSCA, "ca", "", "Use certificate ca to verify server certificate")
 	flagSet.IntVar(&flags.Floatround, "f", -1, "Round performance data float values to this number of digits")
 	flagSet.Usage = func() {
-		fmt.Fprintf(output, "%s", usage)
+		fmt.Fprintf(output, "%s", USAGE)
 	}
 
 	// These flags support loading config from file using "-config FILENAME"
@@ -219,6 +222,11 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	err := flagSet.Parse(osArgs)
 	if errors.Is(err, flag.ErrHelp) {
 		return (3)
+	}
+
+	if flags.VeryVerbose {
+		flags.Verbose = true
+		output = os.Stdout
 	}
 
 	if flags.Version {
@@ -344,7 +352,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			fmt.Fprintf(output, "REQUEST-ERROR:\n%s\n", err.Error())
 		}
 
-		fmt.Fprintf(output, "REQUEST:\n%q\n", dumpreq)
+		fmt.Fprintf(output, ">>>>>>REQUEST:\n%s\n>>>>>>\n", dumpreq)
 	}
 
 	res, err := hClient.Do(req)
@@ -364,7 +372,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err.Error())
 		}
 
-		fmt.Fprintf(output, "RESPONSE:\n%q\n", dumpres)
+		fmt.Fprintf(output, "<<<<<<RESPONSE:\n%s\n<<<<<<\n", dumpres)
 	}
 
 	log.SetOutput(io.Discard)

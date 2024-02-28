@@ -149,14 +149,14 @@ func (q QueryLeg) toV1() *QueryV1 {
 			Message: line.Message,
 		})
 
-		for _, p := range line.Perf {
+		for _, entry := range line.Perf {
 			perfL := map[string]PerfLine{}
 
 			switch {
-			case p.FloatValue != nil:
-				perfL[p.Alias] = *p.FloatValue
-			case p.IntValue != nil:
-				perfL[p.Alias] = *p.IntValue
+			case entry.FloatValue != nil:
+				perfL[entry.Alias] = *entry.FloatValue
+			case entry.IntValue != nil:
+				perfL[entry.Alias] = *entry.IntValue
 			default:
 				continue
 			}
@@ -429,6 +429,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		}
 	} else {
 		queryLeg := new(QueryLeg)
+
 		err = json.Unmarshal(contents, &queryLeg)
 		if err != nil {
 			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
@@ -440,10 +441,12 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			if flags.Verbose {
 				fmt.Fprintf(output, "QUERY RESULT:\n%+v\n", queryLeg)
 			}
+
 			fmt.Fprintf(output, "UNKNOWN - The resultpayload size is 0")
 
 			return (3)
 		}
+
 		queryResult = queryLeg.toV1()
 	}
 

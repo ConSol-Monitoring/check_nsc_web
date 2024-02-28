@@ -185,7 +185,7 @@ fmt: tools
 	done
 	gofmt -w -s ./cmd/ ./pkg/ ./buildtools/
 	./tools/gofumpt -w ./cmd/ ./pkg/ ./buildtools/.
-	./tools/gci write ./cmd/. ./pkg/. ./buildtools/.  --skip-generated
+	./tools/gci write ./cmd/. ./pkg/. ./buildtools/. --skip-generated
 	goimports -w ./cmd/ ./pkg/ ./buildtools/.
 
 versioncheck:

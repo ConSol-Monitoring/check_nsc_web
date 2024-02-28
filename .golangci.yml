@@ -10,6 +10,8 @@ linters:
   enable-all: true
   fast: false
   disable:
+    - gci
+    - gofumpt
     - cyclop
     - depguard
     - exhaustivestruct
@@ -24,6 +26,7 @@ linters:
     - nonamedreturns
     - tagliatelle
     - maligned
+    - perfsprint
 issues:
   max-same-issues: 0
   exclude-use-default: true

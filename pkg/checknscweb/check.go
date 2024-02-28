@@ -41,7 +41,7 @@ import (
 	"github.com/namsral/flag"
 )
 
-const VERSION = "0.6.2"
+const VERSION = "0.6.3"
 
 const USAGE = `Usage:
   check_nsc_web [options] [query parameters]

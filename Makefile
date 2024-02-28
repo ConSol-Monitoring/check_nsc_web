@@ -6,8 +6,8 @@ GOVERSION:=$(shell \
     go version | \
     awk -F'go| ' '{ split($$5, a, /\./); printf ("%04d%04d", a[1], a[2]); exit; }' \
 )
-MINGOVERSION:=00010019
-MINGOVERSIONSTR:=1.19
+MINGOVERSION:=00010021
+MINGOVERSIONSTR:=1.21
 BUILD:=$(shell git rev-parse --short HEAD)
 REVISION:=$(shell printf "%04d" $$( git rev-list --all --count))
 # see https://github.com/go-modules-by-example/index/blob/master/010_tools/README.md
@@ -15,6 +15,7 @@ REVISION:=$(shell printf "%04d" $$( git rev-list --all --count))
 TOOLSFOLDER=$(shell pwd)/tools
 export GOBIN := $(TOOLSFOLDER)
 export PATH := $(GOBIN):$(PATH)
+GO=go
 
 VERSION ?= $(shell ./buildtools/get_version)
 
@@ -22,32 +23,43 @@ all: build
 
 CMDS = $(shell cd ./cmd && ls -1)
 
-tools: versioncheck vendor go.work
-	go mod download
+tools: | versioncheck vendor go.work
+	$(GO) mod download
+	$(GO) mod tidy
+	$(GO) mod vendor
 	set -e; for DEP in $(shell grep "_ " buildtools/tools.go | awk '{ print $$2 }'); do \
-		go install $$DEP; \
+		( cd buildtools && $(GO) install $$DEP@latest ) ; \
 	done
-	go mod tidy
-	go mod vendor
+	( cd buildtools && $(GO) mod tidy )
 
 updatedeps: versioncheck
 	$(MAKE) clean
-	go mod download
-	set -e; for DEP in $(shell grep "_ " buildtools/tools.go | awk '{ print $$2 }'); do \
-		go get $$DEP; \
+	$(MAKE) tools
+	$(GO) mod download
+	set -e; for dir in $(shell ls -d1 pkg/* cmd/*); do \
+		( cd ./$$dir && $(GO) mod download ); \
+		( cd ./$$dir && $(GO) get -u ); \
+		( cd ./$$dir && $(GO) get -t -u ); \
 	done
-	go get -u ./...
-	go get -t -u ./...
-	go mod tidy
+	$(GO) mod download
+	$(MAKE) cleandeps
+
+cleandeps:
+	set -e; for dir in $(shell ls -d1 pkg/* cmd/*); do \
+		( cd ./$$dir && $(GO) mod tidy ); \
+	done
+	$(GO) mod tidy
+	( cd buildtools && $(GO) mod tidy )
+
 
 vendor: go.work
-	go mod download
-	go mod tidy
-	go mod vendor
+	$(GO) mod download
+	$(GO) mod tidy
+	$(GO) mod vendor
 
 go.work: pkg/*
 	echo "go $(MINGOVERSIONSTR)" > go.work
-	go work use . pkg/*
+	$(GO) work use . pkg/* cmd/* buildtools/.
 
 build: vendor go.work
 	set -e; for CMD in $(CMDS); do \
@@ -163,7 +175,7 @@ clean:
 	rm -rf vendor/
 	rm -rf $(TOOLSFOLDER)
 
-GOVET=go vet -all
+GOVET=$(GO) vet -all
 fmt: tools
 	set -e; for CMD in $(CMDS); do \
 		$(GOVET) ./cmd/$$CMD; \
@@ -171,10 +183,10 @@ fmt: tools
 	set -e; for dir in $(shell ls -d1 pkg/*); do \
 		$(GOVET) ./$$dir; \
 	done
-	gofmt -w -s ./cmd/ ./pkg/
-	./tools/gofumpt -w ./cmd/ ./pkg/
-	./tools/gci write ./cmd/. ./pkg/.  --skip-generated
-	goimports -w ./cmd/ ./pkg/
+	gofmt -w -s ./cmd/ ./pkg/ ./buildtools/
+	./tools/gofumpt -w ./cmd/ ./pkg/ ./buildtools/.
+	./tools/gci write ./cmd/. ./pkg/. ./buildtools/.  --skip-generated
+	goimports -w ./cmd/ ./pkg/ ./buildtools/.
 
 versioncheck:
 	@[ $$( printf '%s\n' $(GOVERSION) $(MINGOVERSION) | sort | head -n 1 ) = $(MINGOVERSION) ] || { \
@@ -189,7 +201,7 @@ golangci: tools
 	# golangci combines a few static code analyzer
 	# See https://github.com/golangci/golangci-lint
 	#
-	set -e; for dir in $$(ls -1d pkg/*); do \
+	set -e; for dir in $$(ls -1d pkg/* cmd/*); do \
 		echo $$dir; \
 		( cd $$dir && golangci-lint run ./... ); \
 	done

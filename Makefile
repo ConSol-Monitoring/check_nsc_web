@@ -22,8 +22,6 @@ BUILD_FLAGS=-ldflags "-s -w -X main.Build=$(BUILD) -X main.Revision=$(REVISION)"
 TEST_FLAGS=-timeout=5m $(BUILD_FLAGS)
 GO=go
 
-VERSION ?= $(shell ./buildtools/get_version)
-
 all: build
 
 CMDS = $(shell cd ./cmd && ls -1)

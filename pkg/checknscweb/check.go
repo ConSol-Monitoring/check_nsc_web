@@ -89,7 +89,7 @@ Output Options:
 
 // Query represents the nsclient response, which itself decomposes in lines in
 // which there may be several performance data.
-type PerfLine struct {
+type perfLine struct {
 	Value    interface{} `json:"value,omitempty"`
 	Unit     *string     `json:"unit,omitempty"`
 	Warning  interface{} `json:"warning,omitempty"`
@@ -98,19 +98,19 @@ type PerfLine struct {
 	Maximum  *float64    `json:"maximum,omitempty"`
 }
 
-type ResultLine struct {
+type resultLine struct {
 	Message string              `json:"message"`
-	Perf    map[string]PerfLine `json:"perf"`
+	Perf    map[string]perfLine `json:"perf"`
 }
 
 // Query type depends on API version (v1 or legacy).
-type QueryV1 struct {
+type queryV1 struct {
 	Command string       `json:"command"`
-	Lines   []ResultLine `json:"lines"`
+	Lines   []resultLine `json:"lines"`
 	Result  int          `json:"result"`
 }
 
-type QueryLeg struct {
+type queryLegacy struct {
 	Header struct {
 		SourceID string `json:"source_id"`
 	} `json:"header"`
@@ -120,38 +120,31 @@ type QueryLeg struct {
 			Message string `json:"message"`
 			Perf    []struct {
 				Alias      string    `json:"alias"`
-				IntValue   *PerfLine `json:"int_value,omitempty"`
-				FloatValue *PerfLine `json:"float_value,omitempty"`
+				IntValue   *perfLine `json:"int_value,omitempty"`
+				FloatValue *perfLine `json:"float_value,omitempty"`
 			} `json:"perf"`
 		} `json:"lines"`
 		Result string `json:"result"`
 	} `json:"payload"`
 }
 
-var ReturncodeMap = map[string]int{
-	"OK":       0,
-	"WARNING":  1,
-	"CRITICAL": 2,
-	"UNKNOWN":  3,
-}
-
-func (q QueryLeg) toV1() *QueryV1 {
-	qV1 := new(QueryV1)
+func (q queryLegacy) toV1() *queryV1 {
+	qV1 := new(queryV1)
 	if len(q.Payload) == 0 {
 		return qV1
 	}
 
 	qV1.Command = q.Payload[0].Command
-	qV1.Result = ReturncodeMap[q.Payload[0].Result]
-	qV1.Lines = make([]ResultLine, 0)
+	qV1.Result = naemonState(q.Payload[0].Result)
+	qV1.Lines = make([]resultLine, 0)
 
 	for _, line := range q.Payload[0].Lines {
-		qV1.Lines = append(qV1.Lines, ResultLine{
+		qV1.Lines = append(qV1.Lines, resultLine{
 			Message: line.Message,
 		})
 
 		for _, entry := range line.Perf {
-			perfL := map[string]PerfLine{}
+			perfL := map[string]perfLine{}
 
 			switch {
 			case entry.FloatValue != nil:
@@ -162,7 +155,7 @@ func (q QueryLeg) toV1() *QueryV1 {
 				continue
 			}
 
-			qV1.Lines = append(qV1.Lines, ResultLine{
+			qV1.Lines = append(qV1.Lines, resultLine{
 				Perf: perfL,
 			})
 		}
@@ -618,7 +611,7 @@ func parseFlagsFromFile(output io.Writer, flags *flagSet, flagSet *flag.FlagSet,
 	return nil
 }
 
-func sendOutput(output io.Writer, flags *flagSet, queryResult *QueryV1) int {
+func sendOutput(output io.Writer, flags *flagSet, queryResult *queryV1) int {
 	nagiosMessage := ""
 	nagiosPerfdata := []string{}
 
@@ -717,8 +710,8 @@ func buildHTTPClient(output io.Writer, flags *flagSet, timeout time.Duration) *h
 	return hClient
 }
 
-func extractResult(output io.Writer, flags *flagSet, contents []byte) *QueryV1 {
-	queryResult := &QueryV1{}
+func extractResult(output io.Writer, flags *flagSet, contents []byte) *queryV1 {
+	queryResult := &queryV1{}
 	if flags.APIVersion == "1" {
 		err := json.Unmarshal(contents, &queryResult)
 		if err != nil {
@@ -730,7 +723,7 @@ func extractResult(output io.Writer, flags *flagSet, contents []byte) *QueryV1 {
 		return queryResult
 	}
 
-	queryLeg := &QueryLeg{}
+	queryLeg := &queryLegacy{}
 	err := json.Unmarshal(contents, &queryLeg)
 	if err != nil {
 		fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())

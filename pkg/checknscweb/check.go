@@ -18,6 +18,7 @@ package checknscweb
 // Original Author 2016 Michael Kraus
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -59,7 +60,8 @@ Example:
 
 Options:
   -u <url>                 SNClient/NSCLient++ URL, for example https://10.1.2.3:8443
-  -t <seconds>             Connection timeout in seconds. Default: 10
+  -t <seconds>[:<STATE>]   Connection timeout in seconds. Optional set timeout state.
+                           (0-3 or OK, WARNING, CRITICAL, UNKNOWN) Default: 10:CRITICAL
   -a <api version>         API version of SNClient/NSClient++ (legacy or 1) Default: legacy
   -l <username>            REST webserver login. Default: admin
   -p <password>            REST webserver password
@@ -174,7 +176,7 @@ type flagSet struct {
 	Login         string
 	Password      string
 	APIVersion    string
-	Timeout       int
+	Timeout       string
 	Verbose       bool
 	VeryVerbose   bool
 	JSON          bool
@@ -190,6 +192,7 @@ type flagSet struct {
 	Floatround    int
 	Extratext     string
 	Query         string
+	Config        string
 }
 
 func Check(ctx context.Context, output io.Writer, osArgs []string) int {
@@ -198,7 +201,21 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		return 3
 	}
 
-	timeout := time.Second * time.Duration(flags.Timeout)
+	timeoutExit := 2
+	timeout := 10 * time.Second
+	if flags.Timeout != "" {
+		fields := strings.Split(flags.Timeout, ":")
+		if len(fields) > 1 {
+			timeoutExit = naemonState(fields[1])
+		}
+		sec, err := strconv.Atoi(fields[0])
+		if err != nil {
+			fmt.Fprintf(output, "UNKNOWN - cannot parse timeout: %s", err.Error())
+
+			return 3
+		}
+		timeout = time.Second * time.Duration(sec)
+	}
 
 	urlStruct := buildURL(output, flags, args)
 	if urlStruct == nil {
@@ -256,10 +273,13 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	res, err := hClient.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
-			fmt.Fprintf(output, "UNKNOWN - check timed out after %s ( %s )\n%s", timeout.String(), flags.URL, err.Error())
-		} else {
-			fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
+			fmt.Fprintf(output, "%s - check timed out after %s ( %s )\n%s",
+				naemonName(timeoutExit), timeout.String(), flags.URL, err.Error())
+
+			return timeoutExit
 		}
+
+		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
 		return 3
 	}
@@ -444,7 +464,7 @@ func parseFlags(osArgs []string, output io.Writer) (flags *flagSet, args []strin
 	flagSet.StringVar(&flags.Login, "l", "admin", "SNClient webserver login")
 	flagSet.StringVar(&flags.Password, "p", "", "SNClient webserver password")
 	flagSet.StringVar(&flags.APIVersion, "a", "legacy", "API version of SNClient (legacy or 1)")
-	flagSet.IntVar(&flags.Timeout, "t", 10, "Connection timeout in seconds")
+	flagSet.StringVar(&flags.Timeout, "t", "10:CRITICAL", "Connection timeout in seconds")
 	flagSet.BoolVar(&flags.Verbose, "v", false, "Enable verbose output")
 	flagSet.BoolVar(&flags.VeryVerbose, "vv", false, "Enable very verbose output (and log directly to stdout)")
 	flagSet.BoolVar(&flags.JSON, "j", false, "Print out JSON response body")
@@ -458,14 +478,12 @@ func parseFlags(osArgs []string, output io.Writer) (flags *flagSet, args []strin
 	flagSet.StringVar(&flags.ClientKey, "K", "", "Use client certificate key file to connect")
 	flagSet.StringVar(&flags.TLSCA, "ca", "", "Use certificate ca to verify server certificate")
 	flagSet.IntVar(&flags.Floatround, "f", -1, "Round performance data float values to this number of digits")
+	flagSet.StringVar(&flags.Config, "config", "", "Path to config file")
 	flagSet.Usage = func() {
 		fmt.Fprintf(output, "%s", USAGE)
 	}
 
-	// These flags support loading config from file using "-config FILENAME"
 	flagSet.StringVar(&flags.Query, "query", "", "placeholder for query string from config file")
-	// TODO: ..
-	// flagSet.String(flag.DefaultConfigFlagname, "", "path to config file")
 
 	err := flagSet.Parse(osArgs)
 	if errors.Is(err, flag.ErrHelp) {
@@ -481,6 +499,15 @@ func parseFlags(osArgs []string, output io.Writer) (flags *flagSet, args []strin
 		fmt.Fprintf(output, "check_nsc_web v%s", VERSION)
 
 		return nil, nil
+	}
+
+	if flags.Config != "" {
+		err := parseFlagsFromFile(output, flags, flagSet, flags.Config)
+		if err != nil {
+			fmt.Fprintf(output, "failed to parse config file: %s\n", err.Error())
+
+			return nil, nil
+		}
 	}
 
 	seen := make(map[string]bool)
@@ -506,6 +533,89 @@ func parseFlags(osArgs []string, output io.Writer) (flags *flagSet, args []strin
 	}
 
 	return flags, args
+}
+
+// parseFlagsFromFile parses flags from the file in path.
+// Same format as commandline argumens, newlines and lines beginning with a
+// "#" charater are ignored. Flags already set will be ignored.
+// converted fro namsral/flag.
+func parseFlagsFromFile(output io.Writer, flags *flagSet, flagSet *flag.FlagSet, path string) error {
+	// Extract arguments from file
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open: %s", err.Error())
+	}
+	defer file.Close()
+
+	seen := map[string]bool{}
+	flagSet.Visit(func(flag *flag.Flag) {
+		seen[flag.Name] = true
+	})
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Ignore empty lines
+		if line == "" {
+			continue
+		}
+
+		// Ignore comments
+		if line[:1] == "#" {
+			continue
+		}
+
+		// Match `key=value` and `key value`
+		var name, value string
+		hasValue := false
+		for i, v := range line {
+			if v == '=' || v == ' ' {
+				hasValue = true
+				name, value = line[:i], line[i+1:]
+
+				break
+			}
+		}
+
+		if !hasValue {
+			name = line
+		}
+
+		// Ignore flagVal when already set; arguments have precedence over file
+		flagVal := flagSet.Lookup(name)
+		if flagVal == nil {
+			return fmt.Errorf("variable provided but not defined: %s", name)
+		}
+		if _, ok := seen[name]; ok {
+			if flags.Verbose {
+				fmt.Fprintf(output, "flag %s already set from commandline, skipping config file value\n", name)
+			}
+
+			continue
+		}
+
+		// hack to determine if flag is boolean
+		if strings.Contains(fmt.Sprintf("%#v", flagVal.Value), "flag.boolValue") { // special case: doesn't need an arg
+			if !hasValue {
+				// flag without value is a true bool
+				value = "true"
+			}
+			if err := flagVal.Value.Set(value); err != nil {
+				return fmt.Errorf("invalid boolean value %q for configuration variable %s: %s", value, name, err.Error())
+			}
+		} else {
+			if err := flagVal.Value.Set(value); err != nil {
+				return fmt.Errorf("invalid value %q for configuration variable %s: %s", value, name, err.Error())
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to parse config file: %s", err.Error())
+	}
+
+	return nil
 }
 
 func sendOutput(output io.Writer, flags *flagSet, queryResult *QueryV1) int {
@@ -669,4 +779,30 @@ func buildURL(output io.Writer, flags *flagSet, args []string) *url.URL {
 	}
 
 	return urlStruct
+}
+
+func naemonName(state int) string {
+	switch state {
+	case 0:
+		return "OK"
+	case 1:
+		return "WARNING"
+	case 2:
+		return "CRITICAL"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func naemonState(state string) int {
+	switch strings.ToLower(state) {
+	case "ok", "0":
+		return 0
+	case "warning", "1":
+		return 1
+	case "critical", "2":
+		return 2
+	default:
+		return 3
+	}
 }

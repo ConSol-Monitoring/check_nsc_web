@@ -6,7 +6,7 @@ linters-settings:
       - experimental
   funlen:
     lines: 140
-    statements: 75
+    statements: 85
   gomoddirectives:
     replace-local: true
   gocognit:

@@ -9,3 +9,5 @@
 coverage.txt
 vendor/
 tools/
+go.work
+go.work.sum

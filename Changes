@@ -1,0 +1,74 @@
+This file documents the revision history for check_nsc_web
+
+next:
+          - ...
+
+0.6.3    Wed Feb 28 12:50:51 2024 +0100
+          - minimum go version is now 1.21
+          - reduce vendor folder size
+          - add -vv flag to create very verbose output
+          - unify plugin output
+          - improve timeout output
+          - fix random ordered performance metrics
+          - fix crash on broken performance data
+
+0.6.2    Mon Sep 11 22:09:55 2023 +0200
+          - add -r switch
+          - add client certificate options
+
+0.6.1    Wed Jun 28 09:07:11 2023 +0200
+          - print perf label in sorted order
+          - add support for literal U as perf data value
+          - improve error output if http status is not ok
+
+0.6.0    Tue Jun 20 15:30:29 2023 +0200
+          - add new options -tlsmin / -tlsmax and remove default tlsmin1.2
+
+0.5.6    Tue May 16 23:21:40 2023 +0200
+          - thresholds may not be numbers but range strings
+
+0.5.5    Fri May 12 15:39:07 2023 +0200
+          - turn check into go module for easier integration
+
+0.5.4    Sat Aug 1 10:32:42 2020 +0200
+          - do not exit ok when printing version only
+          - fix unsolicited response
+          - fix accidentially inherit performance data
+
+0.5.3    Wed May 8 15:25:55 2019 +0200
+          - add option to load arguments from config file
+
+0.5.2    Tue Jan 15 09:08:51 2019 +0100
+          - add idelconn timeout
+          - handle http 403
+          - fix extratext
+
+0.5.1    Mon Jan 7 15:43:30 2019 +0100
+          - fix missing message when converting from legacy query structure
+
+0.5.0    Tue Dec 11 16:07:35 2018 +0100
+          - add support for apiv1 of NSClient++
+
+0.4.3    Tue Apr 25 09:19:17 2017 +0200
+          - add option -j to output response as JSON
+
+0.4.2    Wed Apr 5 10:44:40 2017 +0200
+          - fix non-working timeouts
+
+0.4.1    Fri Feb 10 07:01:12 2017 +0100
+          - updated binaries
+          - retain argument order, do not use golang maps
+
+0.4.0    Mon Nov 21 10:58:48 2016 +0100
+          - build renamed executables
+
+0.3.0    Tue Oct 18 16:03:27 2016 +0200
+          - add option -f for decimal digits of performance data float values
+          - build with CGO_ENABLED=0
+
+0.2.0    Fri Oct 14 07:44:22 2016 +0200
+          - handle float_value when decoding json
+
+0.1.0    Wed Oct 12 07:22:31 2016 +0200
+          - initial version
+

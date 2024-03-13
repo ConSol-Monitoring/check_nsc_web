@@ -1,6 +1,6 @@
 This file documents the revision history for check_nsc_web
 
-next:
+0.7.1    Wed Mar 13 20:30:41 CET 2024
           - remove url parameters from error output
           - add option -e to set exit code for connection errors, defaults to unknown
           - fix using config file

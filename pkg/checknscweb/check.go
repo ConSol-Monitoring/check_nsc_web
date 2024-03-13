@@ -68,6 +68,7 @@ Options:
   -t <seconds>[:<STATE>]   Connection timeout in seconds. Default: 10sec
                            Optional set timeout state: 0-3 or OK, WARNING, CRITICAL, UNKNOWN
                            (default timeout state is UNKNOWN)
+  -e <STATE>               exit code for connection errors. Default is UNKNOWN.
   -a <api version>         API version of SNClient/NSClient++ (legacy or 1) Default: legacy
   -l <username>            REST webserver login. Default: admin
   -p <password>            REST webserver password
@@ -178,6 +179,7 @@ type flagSet struct {
 	Password      string
 	APIVersion    string
 	Timeout       string
+	ErrorExit     string
 	Verbose       bool
 	VeryVerbose   bool
 	JSON          bool
@@ -208,6 +210,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 
 		return 3
 	}
+	errorExit := naemonState(flags.ErrorExit)
 
 	queryURL, err := buildURL(flags, args)
 	if err != nil {
@@ -244,9 +247,9 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		msg := err.Error()
 		msg = regexp.MustCompile(`("https?://.*?)/[^"]*"`).ReplaceAllString(msg, "$1/...")
 
-		fmt.Fprintf(output, "UNKNOWN - %s", msg)
+		fmt.Fprintf(output, "%s - %s", naemonName(errorExit), msg)
 
-		return 3
+		return errorExit
 	}
 
 	if flags.Verbose {
@@ -263,7 +266,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	if err != nil {
 		fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err.Error())
 
-		return 3
+		return errorExit
 	}
 
 	if flags.RawOutput {
@@ -273,16 +276,16 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		case http.StatusOK:
 			return 0
 		default:
-			return 3
+			return errorExit
 		}
 	}
 
 	// check http status code
 	// getting 403 here means we're not allowed on the target (e.g. allowed hosts)
 	if res.StatusCode != http.StatusOK {
-		fmt.Fprintf(output, "UNKNOWN - HTTP %s", res.Status)
+		fmt.Fprintf(output, "%s - HTTP %s", naemonName(errorExit), res.Status)
 
-		return 3
+		return errorExit
 	}
 
 	if len(args) == 0 {
@@ -295,17 +298,19 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		return 0
 	}
 
-	queryResult := extractResult(output, flags, contents)
-	if queryResult == nil {
-		return 3
+	queryResult, err := extractResult(output, flags, contents)
+	if err != nil {
+		fmt.Fprintf(output, "%s - %s", naemonName(errorExit), err.Error())
+
+		return errorExit
 	}
 
 	if flags.JSON {
 		jsonStr, err := json.Marshal(queryResult)
 		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
+			fmt.Fprintf(output, "%s - json error: %s", naemonName(errorExit), err.Error())
 
-			return 3
+			return errorExit
 		}
 
 		fmt.Fprintf(output, "%s", jsonStr)
@@ -427,6 +432,7 @@ func parseFlags(osArgs []string, output io.Writer) (flags *flagSet, args []strin
 	flagSet.StringVar(&flags.Password, "p", "", "SNClient webserver password")
 	flagSet.StringVar(&flags.APIVersion, "a", "legacy", "API version of SNClient (legacy or 1)")
 	flagSet.StringVar(&flags.Timeout, "t", "10:UNKNOWN", "Connection timeout in seconds")
+	flagSet.StringVar(&flags.ErrorExit, "e", "UNKNOWN", "Connection error exit code.")
 	flagSet.BoolVar(&flags.Verbose, "v", false, "Enable verbose output")
 	flagSet.BoolVar(&flags.VeryVerbose, "vv", false, "Enable very verbose output (and log directly to stdout)")
 	flagSet.BoolVar(&flags.JSON, "j", false, "Print out JSON response body")
@@ -676,25 +682,21 @@ func buildHTTPClient(output io.Writer, flags *flagSet, timeout time.Duration) (*
 	return hClient, nil
 }
 
-func extractResult(output io.Writer, flags *flagSet, contents []byte) *queryV1 {
+func extractResult(output io.Writer, flags *flagSet, contents []byte) (*queryV1, error) {
 	queryResult := &queryV1{}
 	if flags.APIVersion == "1" {
 		err := json.Unmarshal(contents, &queryResult)
 		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
-
-			return nil
+			return nil, fmt.Errorf("json error: %s", err.Error())
 		}
 
-		return queryResult
+		return queryResult, nil
 	}
 
 	queryLeg := &queryLegacy{}
 	err := json.Unmarshal(contents, &queryLeg)
 	if err != nil {
-		fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
-
-		return nil
+		return nil, fmt.Errorf("json error: %s", err.Error())
 	}
 
 	if len(queryLeg.Payload) == 0 {
@@ -702,12 +704,10 @@ func extractResult(output io.Writer, flags *flagSet, contents []byte) *queryV1 {
 			fmt.Fprintf(output, "QUERY RESULT:\n%+v\n", queryLeg)
 		}
 
-		fmt.Fprintf(output, "UNKNOWN - The resultpayload size is 0")
-
-		return nil
+		return nil, fmt.Errorf("resultpayload size is 0")
 	}
 
-	return queryLeg.toV1()
+	return queryLeg.toV1(), nil
 }
 
 func buildURL(flags *flagSet, args []string) (*url.URL, error) {

@@ -195,20 +195,11 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		return 3
 	}
 
-	timeoutExit := 2
-	timeout := 10 * time.Second
-	if flags.Timeout != "" {
-		fields := strings.Split(flags.Timeout, ":")
-		if len(fields) > 1 {
-			timeoutExit = naemonState(fields[1])
-		}
-		sec, err := strconv.Atoi(fields[0])
-		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN - cannot parse timeout: %s", err.Error())
+	timeout, timeoutExit, err := parseTimeout(flags.Timeout)
+	if err != nil {
+		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
-			return 3
-		}
-		timeout = time.Second * time.Duration(sec)
+		return 3
 	}
 
 	urlStruct := buildURL(output, flags, args)
@@ -801,4 +792,22 @@ func naemonState(state string) int {
 	default:
 		return 3
 	}
+}
+
+func parseTimeout(flagTimeout string) (timeout time.Duration, timeoutExit int, err error) {
+	timeout = 10 * time.Second
+	timeoutExit = 2
+	if flagTimeout != "" {
+		fields := strings.Split(flagTimeout, ":")
+		if len(fields) > 1 {
+			timeoutExit = naemonState(fields[1])
+		}
+		sec, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return 0, 0, fmt.Errorf("cannot parse timeout: %s", err.Error())
+		}
+		timeout = time.Second * time.Duration(sec)
+	}
+
+	return
 }

@@ -61,7 +61,7 @@ Example:
 Options:
   -u <url>                 SNClient/NSCLient++ URL, for example https://10.1.2.3:8443
   -t <seconds>[:<STATE>]   Connection timeout in seconds. Optional set timeout state.
-                           (0-3 or OK, WARNING, CRITICAL, UNKNOWN) Default: 10:CRITICAL
+                           (0-3 or OK, WARNING, CRITICAL, UNKNOWN) Default: 10:UNKNOWN
   -a <api version>         API version of SNClient/NSClient++ (legacy or 1) Default: legacy
   -l <username>            REST webserver login. Default: admin
   -p <password>            REST webserver password
@@ -464,7 +464,7 @@ func parseFlags(osArgs []string, output io.Writer) (flags *flagSet, args []strin
 	flagSet.StringVar(&flags.Login, "l", "admin", "SNClient webserver login")
 	flagSet.StringVar(&flags.Password, "p", "", "SNClient webserver password")
 	flagSet.StringVar(&flags.APIVersion, "a", "legacy", "API version of SNClient (legacy or 1)")
-	flagSet.StringVar(&flags.Timeout, "t", "10:CRITICAL", "Connection timeout in seconds")
+	flagSet.StringVar(&flags.Timeout, "t", "10:UNKNOWN", "Connection timeout in seconds")
 	flagSet.BoolVar(&flags.Verbose, "v", false, "Enable verbose output")
 	flagSet.BoolVar(&flags.VeryVerbose, "vv", false, "Enable very verbose output (and log directly to stdout)")
 	flagSet.BoolVar(&flags.JSON, "j", false, "Print out JSON response body")

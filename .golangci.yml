@@ -4,8 +4,10 @@ linters-settings:
       - performance
       - style
       - experimental
+  gocyclo:
+    min-complexity: 35
   funlen:
-    lines: 140
+    lines: 160
     statements: 85
   gomoddirectives:
     replace-local: true

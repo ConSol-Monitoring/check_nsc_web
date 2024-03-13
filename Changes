@@ -2,7 +2,7 @@ This file documents the revision history for check_nsc_web
 
 next:
           - replace deprecated flag parser
-          - add option to set timeout return state (default is critical)
+          - add option to set timeout return state (default is unknown)
 
 0.6.3    Wed Feb 28 12:50:51 2024 +0100
           - minimum go version is now 1.21

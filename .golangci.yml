@@ -4,8 +4,13 @@ linters-settings:
       - performance
       - style
       - experimental
+  funlen:
+    lines: 140
+    statements: 75
   gomoddirectives:
     replace-local: true
+  gocognit:
+    min-complexity: 45
   govet:
     check-shadowing: true
 linters:
@@ -18,6 +23,7 @@ linters:
     - exhaustruct
     - gochecknoglobals
     - gochecknoinits
+    - goerr113
     - gofumpt
     - ifshort
     - interfacer

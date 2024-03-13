@@ -25,6 +25,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -192,99 +193,16 @@ type flagSet struct {
 }
 
 func Check(ctx context.Context, output io.Writer, osArgs []string) int {
-	flags := flagSet{}
-	flagSet := flag.NewFlagSet("check_nsc_web", flag.ContinueOnError)
-	flagSet.SetOutput(output)
-	flagSet.StringVar(&flags.URL, "u", "", "SNClient URL, for example https://10.1.2.3:8443")
-	flagSet.StringVar(&flags.Login, "l", "admin", "SNClient webserver login")
-	flagSet.StringVar(&flags.Password, "p", "", "SNClient webserver password")
-	flagSet.StringVar(&flags.APIVersion, "a", "legacy", "API version of SNClient (legacy or 1)")
-	flagSet.IntVar(&flags.Timeout, "t", 10, "Connection timeout in seconds")
-	flagSet.BoolVar(&flags.Verbose, "v", false, "Enable verbose output")
-	flagSet.BoolVar(&flags.VeryVerbose, "vv", false, "Enable very verbose output (and log directly to stdout)")
-	flagSet.BoolVar(&flags.JSON, "j", false, "Print out JSON response body")
-	flagSet.BoolVar(&flags.RawOutput, "r", false, "Print raw result without pre/post processing")
-	flagSet.BoolVar(&flags.Version, "V", false, "Print program version")
-	flagSet.BoolVar(&flags.Insecure, "k", false, "Insecure mode - skip TLS verification")
-	flagSet.StringVar(&flags.TLSMin, "tlsmin", "tls1.0", "Minimum tls version used to connect")
-	flagSet.StringVar(&flags.TLSMax, "tlsmax", "", "Maximum tls version used to connect")
-	flagSet.StringVar(&flags.TLSServerName, "tlshostname", "", "Use this servername when verifying tls server name")
-	flagSet.StringVar(&flags.ClientCert, "C", "", "Use client certificate (pem) to connect. Must provide -K as well")
-	flagSet.StringVar(&flags.ClientKey, "K", "", "Use client certificate key file to connect")
-	flagSet.StringVar(&flags.TLSCA, "ca", "", "Use certificate ca to verify server certificate")
-	flagSet.IntVar(&flags.Floatround, "f", -1, "Round performance data float values to this number of digits")
-	flagSet.Usage = func() {
-		fmt.Fprintf(output, "%s", USAGE)
-	}
-
-	// These flags support loading config from file using "-config FILENAME"
-	flagSet.StringVar(&flags.Query, "query", "", "placeholder for query string from config file")
-	flagSet.String(flag.DefaultConfigFlagname, "", "path to config file")
-
-	err := flagSet.Parse(osArgs)
-	if errors.Is(err, flag.ErrHelp) {
-		return (3)
-	}
-
-	if flags.VeryVerbose {
-		flags.Verbose = true
-		output = os.Stdout
-	}
-
-	if flags.Version {
-		fmt.Fprintf(output, "check_nsc_web v%s", VERSION)
-
-		return (3)
-	}
-
-	seen := make(map[string]bool)
-
-	flagSet.Visit(func(f *flag.Flag) {
-		seen[f.Name] = true
-	})
-
-	for _, req := range []string{"u", "p"} {
-		if !seen[req] {
-			fmt.Fprintf(output, "UNKNOWN - missing required -%s argument\n", req)
-			flagSet.Usage()
-
-			return (3)
-		}
-	}
-
-	args := flagSet.Args()
-	// Has there a flag "query" been provided in the config file? Transform it into slice and append it to Args()
-	if seen["query"] {
-		q := strings.Split(flags.Query, " ")
-		args = append(args, q...)
+	flags, args := parseFlags(osArgs, output)
+	if flags == nil {
+		return 3
 	}
 
 	timeout := time.Second * time.Duration(flags.Timeout)
 
-	urlStruct, err := url.Parse(flags.URL)
-	if err != nil {
-		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
-
-		return (3)
-	}
-
-	switch {
-	case flags.RawOutput:
-		if len(args) > 0 {
-			fmt.Fprintf(output, "UNKNOWN - no arguments supported in passthrough mode")
-
-			return (3)
-		}
-	case len(args) == 0:
-		if !strings.HasSuffix(urlStruct.Path, "/") {
-			urlStruct.Path += "/"
-		}
-	default:
-		if flags.APIVersion == "1" {
-			urlStruct.Path += "/api/v1/queries/" + args[0] + "/commands/execute"
-		} else {
-			urlStruct.Path += "/query/" + args[0]
-		}
+	urlStruct := buildURL(output, flags, args)
+	if urlStruct == nil {
+		return 3
 	}
 
 	if len(args) > 1 {
@@ -303,43 +221,21 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			} else {
 				param.WriteString(url.QueryEscape(p[0]) + "=" + url.QueryEscape(p[1]))
 			}
-
-			if err != nil {
-				fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
-
-				return (3)
-			}
 		}
 
 		urlStruct.RawQuery = param.String()
 	}
 
-	tlsConfig, err := getTLSClientConfig(output, &flags)
-	if err != nil {
-		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
-
-		return (3)
-	}
-
-	hTransport := &http.Transport{
-		TLSClientConfig: tlsConfig,
-		Dial: (&net.Dialer{
-			Timeout: timeout,
-		}).Dial,
-		ResponseHeaderTimeout: timeout,
-		TLSHandshakeTimeout:   timeout,
-		IdleConnTimeout:       timeout,
-	}
-	hClient := &http.Client{
-		Timeout:   timeout,
-		Transport: hTransport,
+	hClient := buildHTTPClient(output, flags, timeout)
+	if hClient == nil {
+		return 3
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStruct.String(), http.NoBody)
 	if err != nil {
 		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
-		return (3)
+		return 3
 	}
 
 	if flags.APIVersion == "1" && flags.Login != "" {
@@ -349,9 +245,9 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	}
 
 	if flags.Verbose {
-		dumpreq, err := httputil.DumpRequestOut(req, true)
-		if err != nil {
-			fmt.Fprintf(output, "REQUEST-ERROR:\n%s\n", err.Error())
+		dumpreq, err2 := httputil.DumpRequestOut(req, true)
+		if err2 != nil {
+			fmt.Fprintf(output, "REQUEST-ERROR:\n%s\n", err2.Error())
 		}
 
 		fmt.Fprintf(output, ">>>>>>REQUEST:\n%s\n>>>>>>\n", dumpreq)
@@ -365,13 +261,13 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 		}
 
-		return (3)
+		return 3
 	}
 
 	if flags.Verbose {
-		dumpres, err := httputil.DumpResponse(res, true)
-		if err != nil {
-			fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err.Error())
+		dumpres, err2 := httputil.DumpResponse(res, true)
+		if err2 != nil {
+			fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err2.Error())
 		}
 
 		fmt.Fprintf(output, "<<<<<<RESPONSE:\n%s\n<<<<<<\n", dumpres)
@@ -383,7 +279,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	if err != nil {
 		fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err.Error())
 
-		return (3)
+		return 3
 	}
 
 	hClient.CloseIdleConnections()
@@ -393,9 +289,9 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 
 		switch res.StatusCode {
 		case http.StatusOK:
-			return (0)
+			return 0
 		default:
-			return (3)
+			return 3
 		}
 	}
 
@@ -404,7 +300,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	if res.StatusCode != http.StatusOK {
 		fmt.Fprintf(output, "UNKNOWN - HTTP %s", res.Status)
 
-		return (3)
+		return 3
 	}
 
 	if len(args) == 0 {
@@ -414,38 +310,12 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			fmt.Fprintf(output, "\n%s", contents)
 		}
 
-		return (0)
+		return 0
 	}
 
-	queryResult := new(QueryV1)
-	if flags.APIVersion == "1" {
-		err = json.Unmarshal(contents, &queryResult)
-		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
-
-			return (3)
-		}
-	} else {
-		queryLeg := new(QueryLeg)
-
-		err = json.Unmarshal(contents, &queryLeg)
-		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
-
-			return (3)
-		}
-
-		if len(queryLeg.Payload) == 0 {
-			if flags.Verbose {
-				fmt.Fprintf(output, "QUERY RESULT:\n%+v\n", queryLeg)
-			}
-
-			fmt.Fprintf(output, "UNKNOWN - The resultpayload size is 0")
-
-			return (3)
-		}
-
-		queryResult = queryLeg.toV1()
+	queryResult := extractResult(output, flags, contents)
+	if queryResult == nil {
+		return 3
 	}
 
 	if flags.JSON {
@@ -453,85 +323,15 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		if err != nil {
 			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
 
-			return (3)
+			return 3
 		}
 
 		fmt.Fprintf(output, "%s", jsonStr)
 
-		return (0)
+		return 0
 	}
 
-	nagiosMessage := ""
-	nagiosPerfdata := []string{}
-
-	for _, line := range queryResult.Lines {
-		nagiosMessage += strings.TrimSpace(line.Message)
-
-		// iterate by sorted sortedPerfLabel, otherwise the order of performance label is different every time
-		sortedPerfLabel := make([]string, 0, len(line.Perf))
-
-		for k := range line.Perf {
-			sortedPerfLabel = append(sortedPerfLabel, k)
-		}
-
-		sort.Strings(sortedPerfLabel)
-
-		for _, perfName := range sortedPerfLabel {
-			perf := line.Perf[perfName]
-			// REFERENCE 'label'=value[UOM];[warn];[crit];[min];[max]
-			var (
-				val string
-				uni string
-				war string
-				cri string
-				min string
-				max string
-			)
-
-			if perf.Value != nil {
-				switch perfVal := perf.Value.(type) {
-				case float64:
-					val = strconv.FormatFloat(perfVal, 'f', flags.Floatround, 64)
-				case string:
-					val = perfVal
-				default:
-					fmt.Fprintf(output, "UNKNOWN - json error: unknown value type: %T", perfVal)
-				}
-			} else {
-				continue
-			}
-
-			if perf.Unit != nil {
-				uni = (*(perf.Unit))
-			}
-
-			if perf.Warning != nil {
-				war = fmt.Sprintf("%v", perf.Warning)
-			}
-
-			if perf.Critical != nil {
-				cri = fmt.Sprintf("%v", perf.Critical)
-			}
-
-			if perf.Minimum != nil {
-				min = strconv.FormatFloat(*(perf.Minimum), 'f', flags.Floatround, 64)
-			}
-
-			if perf.Maximum != nil {
-				max = strconv.FormatFloat(*(perf.Maximum), 'f', flags.Floatround, 64)
-			}
-
-			nagiosPerfdata = append(nagiosPerfdata, fmt.Sprintf("'%s'=%s%s;%s;%s;%s;%s", perfName, val, uni, war, cri, min, max))
-		}
-	}
-
-	if len(nagiosPerfdata) == 0 {
-		fmt.Fprintf(output, "%s %s", nagiosMessage, flags.Extratext)
-	} else {
-		fmt.Fprintf(output, "%s %s|%s", nagiosMessage, flags.Extratext, strings.TrimSpace(strings.Join(nagiosPerfdata, " ")))
-	}
-
-	return (queryResult.Result)
+	return sendOutput(output, flags, queryResult)
 }
 
 func extractHTTPResponse(response *http.Response) (contents []byte, err error) {
@@ -634,4 +434,239 @@ func getTLSClientConfig(output io.Writer, flags *flagSet) (cfg *tls.Config, err 
 	cfg.ServerName = flags.TLSServerName
 
 	return cfg, nil
+}
+
+func parseFlags(osArgs []string, output io.Writer) (flags *flagSet, args []string) {
+	flags = &flagSet{}
+	flagSet := flag.NewFlagSet("check_nsc_web", flag.ContinueOnError)
+	flagSet.SetOutput(output)
+	flagSet.StringVar(&flags.URL, "u", "", "SNClient URL, for example https://10.1.2.3:8443")
+	flagSet.StringVar(&flags.Login, "l", "admin", "SNClient webserver login")
+	flagSet.StringVar(&flags.Password, "p", "", "SNClient webserver password")
+	flagSet.StringVar(&flags.APIVersion, "a", "legacy", "API version of SNClient (legacy or 1)")
+	flagSet.IntVar(&flags.Timeout, "t", 10, "Connection timeout in seconds")
+	flagSet.BoolVar(&flags.Verbose, "v", false, "Enable verbose output")
+	flagSet.BoolVar(&flags.VeryVerbose, "vv", false, "Enable very verbose output (and log directly to stdout)")
+	flagSet.BoolVar(&flags.JSON, "j", false, "Print out JSON response body")
+	flagSet.BoolVar(&flags.RawOutput, "r", false, "Print raw result without pre/post processing")
+	flagSet.BoolVar(&flags.Version, "V", false, "Print program version")
+	flagSet.BoolVar(&flags.Insecure, "k", false, "Insecure mode - skip TLS verification")
+	flagSet.StringVar(&flags.TLSMin, "tlsmin", "tls1.0", "Minimum tls version used to connect")
+	flagSet.StringVar(&flags.TLSMax, "tlsmax", "", "Maximum tls version used to connect")
+	flagSet.StringVar(&flags.TLSServerName, "tlshostname", "", "Use this servername when verifying tls server name")
+	flagSet.StringVar(&flags.ClientCert, "C", "", "Use client certificate (pem) to connect. Must provide -K as well")
+	flagSet.StringVar(&flags.ClientKey, "K", "", "Use client certificate key file to connect")
+	flagSet.StringVar(&flags.TLSCA, "ca", "", "Use certificate ca to verify server certificate")
+	flagSet.IntVar(&flags.Floatround, "f", -1, "Round performance data float values to this number of digits")
+	flagSet.Usage = func() {
+		fmt.Fprintf(output, "%s", USAGE)
+	}
+
+	// These flags support loading config from file using "-config FILENAME"
+	flagSet.StringVar(&flags.Query, "query", "", "placeholder for query string from config file")
+	// TODO: ..
+	// flagSet.String(flag.DefaultConfigFlagname, "", "path to config file")
+
+	err := flagSet.Parse(osArgs)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil, nil
+	}
+
+	if flags.VeryVerbose {
+		flags.Verbose = true
+		output = os.Stdout
+	}
+
+	if flags.Version {
+		fmt.Fprintf(output, "check_nsc_web v%s", VERSION)
+
+		return nil, nil
+	}
+
+	seen := make(map[string]bool)
+
+	flagSet.Visit(func(f *flag.Flag) {
+		seen[f.Name] = true
+	})
+
+	for _, req := range []string{"u", "p"} {
+		if !seen[req] {
+			fmt.Fprintf(output, "UNKNOWN - missing required -%s argument\n", req)
+			flagSet.Usage()
+
+			return nil, nil
+		}
+	}
+
+	args = flagSet.Args()
+	// Has there a flag "query" been provided in the config file? Transform it into slice and append it to Args()
+	if seen["query"] {
+		q := strings.Split(flags.Query, " ")
+		args = append(args, q...)
+	}
+
+	return flags, args
+}
+
+func sendOutput(output io.Writer, flags *flagSet, queryResult *QueryV1) int {
+	nagiosMessage := ""
+	nagiosPerfdata := []string{}
+
+	for _, line := range queryResult.Lines {
+		nagiosMessage += strings.TrimSpace(line.Message)
+
+		// iterate by sorted sortedPerfLabel, otherwise the order of performance label is different every time
+		sortedPerfLabel := make([]string, 0, len(line.Perf))
+
+		for k := range line.Perf {
+			sortedPerfLabel = append(sortedPerfLabel, k)
+		}
+
+		sort.Strings(sortedPerfLabel)
+
+		for _, perfName := range sortedPerfLabel {
+			perf := line.Perf[perfName]
+			// REFERENCE 'label'=value[UOM];[warn];[crit];[min];[max]
+			var (
+				val string
+				uni string
+				war string
+				cri string
+				min string
+				max string
+			)
+
+			if perf.Value != nil {
+				switch perfVal := perf.Value.(type) {
+				case float64:
+					val = strconv.FormatFloat(perfVal, 'f', flags.Floatround, 64)
+				case string:
+					val = perfVal
+				default:
+					fmt.Fprintf(output, "UNKNOWN - json error: unknown value type: %T", perfVal)
+				}
+			} else {
+				continue
+			}
+
+			if perf.Unit != nil {
+				uni = (*(perf.Unit))
+			}
+
+			if perf.Warning != nil {
+				war = fmt.Sprintf("%v", perf.Warning)
+			}
+
+			if perf.Critical != nil {
+				cri = fmt.Sprintf("%v", perf.Critical)
+			}
+
+			if perf.Minimum != nil {
+				min = strconv.FormatFloat(*(perf.Minimum), 'f', flags.Floatround, 64)
+			}
+
+			if perf.Maximum != nil {
+				max = strconv.FormatFloat(*(perf.Maximum), 'f', flags.Floatround, 64)
+			}
+
+			nagiosPerfdata = append(nagiosPerfdata, fmt.Sprintf("'%s'=%s%s;%s;%s;%s;%s", perfName, val, uni, war, cri, min, max))
+		}
+	}
+
+	if len(nagiosPerfdata) == 0 {
+		fmt.Fprintf(output, "%s %s", nagiosMessage, flags.Extratext)
+	} else {
+		fmt.Fprintf(output, "%s %s|%s", nagiosMessage, flags.Extratext, strings.TrimSpace(strings.Join(nagiosPerfdata, " ")))
+	}
+
+	return (queryResult.Result)
+}
+
+func buildHTTPClient(output io.Writer, flags *flagSet, timeout time.Duration) *http.Client {
+	tlsConfig, err := getTLSClientConfig(output, flags)
+	if err != nil {
+		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
+
+		return nil
+	}
+
+	hTransport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+		Dial: (&net.Dialer{
+			Timeout: timeout,
+		}).Dial,
+		ResponseHeaderTimeout: timeout,
+		TLSHandshakeTimeout:   timeout,
+		IdleConnTimeout:       timeout,
+	}
+	hClient := &http.Client{
+		Timeout:   timeout,
+		Transport: hTransport,
+	}
+
+	return hClient
+}
+
+func extractResult(output io.Writer, flags *flagSet, contents []byte) *QueryV1 {
+	queryResult := &QueryV1{}
+	if flags.APIVersion == "1" {
+		err := json.Unmarshal(contents, &queryResult)
+		if err != nil {
+			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
+
+			return nil
+		}
+
+		return queryResult
+	}
+
+	queryLeg := &QueryLeg{}
+	err := json.Unmarshal(contents, &queryLeg)
+	if err != nil {
+		fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
+
+		return nil
+	}
+
+	if len(queryLeg.Payload) == 0 {
+		if flags.Verbose {
+			fmt.Fprintf(output, "QUERY RESULT:\n%+v\n", queryLeg)
+		}
+
+		fmt.Fprintf(output, "UNKNOWN - The resultpayload size is 0")
+
+		return nil
+	}
+
+	return queryLeg.toV1()
+}
+
+func buildURL(output io.Writer, flags *flagSet, args []string) *url.URL {
+	urlStruct, err := url.Parse(flags.URL)
+	if err != nil {
+		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
+
+		return nil
+	}
+
+	switch {
+	case flags.RawOutput:
+		if len(args) > 0 {
+			fmt.Fprintf(output, "UNKNOWN - no arguments supported in passthrough mode")
+
+			return nil
+		}
+	case len(args) == 0:
+		if !strings.HasSuffix(urlStruct.Path, "/") {
+			urlStruct.Path += "/"
+		}
+	default:
+		if flags.APIVersion == "1" {
+			urlStruct.Path += "/api/v1/queries/" + args[0] + "/commands/execute"
+		} else {
+			urlStruct.Path += "/query/" + args[0]
+		}
+	}
+
+	return urlStruct
 }

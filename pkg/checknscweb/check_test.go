@@ -24,6 +24,7 @@ func TestCheck(t *testing.T) {
 	assert.Equal(t, 3, exitCode)
 	assert.Contains(t, buf.String(), "UNKNOWN")
 	assert.Contains(t, buf.String(), "connect:")
+	assert.NotContains(t, buf.String(), "check_cpu")
 }
 
 func TestCheckConfig(t *testing.T) {
@@ -45,4 +46,5 @@ query check_cpu show-all
 	assert.Equal(t, 3, exitCode)
 	assert.Contains(t, buf.String(), "UNKNOWN")
 	assert.Contains(t, buf.String(), "connect:")
+	assert.NotContains(t, buf.String(), "check_cpu")
 }

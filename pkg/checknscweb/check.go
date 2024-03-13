@@ -35,6 +35,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -272,7 +273,10 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			return timeoutExit
 		}
 
-		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
+		// clean parameters from error message
+		msg := err.Error()
+		msg = regexp.MustCompile(`("https?://.*?)/[^"]*"`).ReplaceAllString(msg, "$1/...")
+		fmt.Fprintf(output, "UNKNOWN - %s", msg)
 
 		return 3
 	}

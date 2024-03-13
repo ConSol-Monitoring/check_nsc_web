@@ -503,24 +503,23 @@ func parseFlags(osArgs []string, output io.Writer) (flags *flagSet, args []strin
 		}
 	}
 
-	seen := make(map[string]bool)
+	if flags.URL == "" {
+		fmt.Fprintf(output, "UNKNOWN - missing required -u argument\n")
+		flagSet.Usage()
 
-	flagSet.Visit(func(f *flag.Flag) {
-		seen[f.Name] = true
-	})
+		return nil, nil
+	}
 
-	for _, req := range []string{"u", "p"} {
-		if !seen[req] {
-			fmt.Fprintf(output, "UNKNOWN - missing required -%s argument\n", req)
-			flagSet.Usage()
+	if flags.Password == "" {
+		fmt.Fprintf(output, "UNKNOWN - missing required -p argument\n")
+		flagSet.Usage()
 
-			return nil, nil
-		}
+		return nil, nil
 	}
 
 	args = flagSet.Args()
 	// Has there a flag "query" been provided in the config file? Transform it into slice and append it to Args()
-	if seen["query"] {
+	if flags.Query != "" {
 		q := strings.Split(flags.Query, " ")
 		args = append(args, q...)
 	}

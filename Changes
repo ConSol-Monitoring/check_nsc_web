@@ -2,6 +2,7 @@ This file documents the revision history for check_nsc_web
 
 next:
           - remove url parameters from error output
+          - fix using config file
 
 0.7.0    Wed Mar 13 16:48:20 CET 2024
           - replace deprecated flag parser

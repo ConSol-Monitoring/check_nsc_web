@@ -19,7 +19,6 @@ package checknscweb
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -49,20 +48,26 @@ const USAGE = `Usage:
 
 Description:
   check_nsc_web is a REST client for the NSClient++/SNClient+ webserver for querying
-  and receiving check information over HTTPS.
+  and receiving check information over HTTP(S).
 
 Version:
   check_nsc_web v` + VERSION + `
 
 Example:
-  check_nsc_web -p "password" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_cpu
+  connectivity check (parent service):
+  check_nsc_web -p "password" -u "https://<SERVER>:8443"
 
-  check_nsc_web -p "password" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_drivesize disk=c
+  check without arguments:
+  check_nsc_web -p "password" -u "https://<SERVER>:8443" check_cpu
+
+  check with arguments:
+  check_nsc_web -p "password" -u "https://<SERVER>:8443" check_drivesize disk=c
 
 Options:
   -u <url>                 SNClient/NSCLient++ URL, for example https://10.1.2.3:8443
-  -t <seconds>[:<STATE>]   Connection timeout in seconds. Optional set timeout state.
-                           (0-3 or OK, WARNING, CRITICAL, UNKNOWN) Default: 10:UNKNOWN
+  -t <seconds>[:<STATE>]   Connection timeout in seconds. Default: 10sec
+                           Optional set timeout state: 0-3 or OK, WARNING, CRITICAL, UNKNOWN
+                           (default timeout state is UNKNOWN)
   -a <api version>         API version of SNClient/NSClient++ (legacy or 1) Default: legacy
   -l <username>            REST webserver login. Default: admin
   -p <password>            REST webserver password
@@ -88,8 +93,20 @@ Output Options:
   -query <string>          Placeholder for query string from config file
 `
 
-// Query represents the nsclient response, which itself decomposes in lines in
-// which there may be several performance data.
+// queryV1 represents the json response from snclient in version 1.
+type queryV1 struct {
+	Command string       `json:"command"`
+	Lines   []resultLine `json:"lines"`
+	Result  int          `json:"result"`
+}
+
+// resultLine is one entry in the result.
+type resultLine struct {
+	Message string              `json:"message"`
+	Perf    map[string]perfLine `json:"perf"`
+}
+
+// perfLine represents the nsclient performance data response.
 type perfLine struct {
 	Value    interface{} `json:"value,omitempty"`
 	Unit     *string     `json:"unit,omitempty"`
@@ -99,18 +116,7 @@ type perfLine struct {
 	Maximum  *float64    `json:"maximum,omitempty"`
 }
 
-type resultLine struct {
-	Message string              `json:"message"`
-	Perf    map[string]perfLine `json:"perf"`
-}
-
-// Query type depends on API version (v1 or legacy).
-type queryV1 struct {
-	Command string       `json:"command"`
-	Lines   []resultLine `json:"lines"`
-	Result  int          `json:"result"`
-}
-
+// queryLegacy represents the json response from snclient using the legacy version.
 type queryLegacy struct {
 	Header struct {
 		SourceID string `json:"source_id"`
@@ -129,6 +135,7 @@ type queryLegacy struct {
 	} `json:"payload"`
 }
 
+// toV1 converts a legacy response to version 1.
 func (q queryLegacy) toV1() *queryV1 {
 	qV1 := new(queryV1)
 	if len(q.Payload) == 0 {
@@ -202,57 +209,26 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		return 3
 	}
 
-	urlStruct := buildURL(output, flags, args)
-	if urlStruct == nil {
-		return 3
-	}
-
-	if len(args) > 1 {
-		var param bytes.Buffer
-
-		for i, arg := range args {
-			if i == 0 {
-				continue
-			} else if i > 1 {
-				param.WriteString("&")
-			}
-
-			p := strings.SplitN(arg, "=", 2)
-			if len(p) == 1 {
-				param.WriteString(url.QueryEscape(p[0]))
-			} else {
-				param.WriteString(url.QueryEscape(p[0]) + "=" + url.QueryEscape(p[1]))
-			}
-		}
-
-		urlStruct.RawQuery = param.String()
-	}
-
-	hClient := buildHTTPClient(output, flags, timeout)
-	if hClient == nil {
-		return 3
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStruct.String(), http.NoBody)
+	queryURL, err := buildURL(flags, args)
 	if err != nil {
 		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
 		return 3
 	}
 
-	if flags.APIVersion == "1" && flags.Login != "" {
-		req.Header.Add("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(flags.Login+":"+flags.Password)))
-	} else {
-		req.Header.Add("password", flags.Password)
+	hClient, err := buildHTTPClient(output, flags, timeout)
+	if err != nil {
+		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
+
+		return 3
 	}
+	defer hClient.CloseIdleConnections()
 
-	if flags.Verbose {
-		dumpreq, err2 := httputil.DumpRequestOut(req, true)
-		if err2 != nil {
-			fmt.Fprintf(output, "REQUEST-ERROR:\n%s\n", err2.Error())
-		}
+	req, err := buildRequest(ctx, output, queryURL.String(), flags)
+	if err != nil {
+		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
-		fmt.Fprintf(output, ">>>>>>REQUEST:\n%s\n>>>>>>\n", dumpreq)
+		return 3
 	}
 
 	res, err := hClient.Do(req)
@@ -267,6 +243,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		// clean parameters from error message
 		msg := err.Error()
 		msg = regexp.MustCompile(`("https?://.*?)/[^"]*"`).ReplaceAllString(msg, "$1/...")
+
 		fmt.Fprintf(output, "UNKNOWN - %s", msg)
 
 		return 3
@@ -282,15 +259,12 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 	}
 
 	log.SetOutput(io.Discard)
-
 	contents, err := extractHTTPResponse(res)
 	if err != nil {
 		fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err.Error())
 
 		return 3
 	}
-
-	hClient.CloseIdleConnections()
 
 	if flags.RawOutput {
 		fmt.Fprintf(output, "\n%s", contents)
@@ -679,12 +653,10 @@ func sendOutput(output io.Writer, flags *flagSet, queryResult *queryV1) int {
 	return (queryResult.Result)
 }
 
-func buildHTTPClient(output io.Writer, flags *flagSet, timeout time.Duration) *http.Client {
+func buildHTTPClient(output io.Writer, flags *flagSet, timeout time.Duration) (*http.Client, error) {
 	tlsConfig, err := getTLSClientConfig(output, flags)
 	if err != nil {
-		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
-
-		return nil
+		return nil, err
 	}
 
 	hTransport := &http.Transport{
@@ -701,7 +673,7 @@ func buildHTTPClient(output io.Writer, flags *flagSet, timeout time.Duration) *h
 		Transport: hTransport,
 	}
 
-	return hClient
+	return hClient, nil
 }
 
 func extractResult(output io.Writer, flags *flagSet, contents []byte) *queryV1 {
@@ -738,20 +710,16 @@ func extractResult(output io.Writer, flags *flagSet, contents []byte) *queryV1 {
 	return queryLeg.toV1()
 }
 
-func buildURL(output io.Writer, flags *flagSet, args []string) *url.URL {
+func buildURL(flags *flagSet, args []string) (*url.URL, error) {
 	urlStruct, err := url.Parse(flags.URL)
 	if err != nil {
-		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
-
-		return nil
+		return nil, fmt.Errorf("url.Parse: %s", err.Error())
 	}
 
 	switch {
 	case flags.RawOutput:
 		if len(args) > 0 {
-			fmt.Fprintf(output, "UNKNOWN - no arguments supported in passthrough mode")
-
-			return nil
+			return nil, fmt.Errorf("no arguments supported in passthrough mode")
 		}
 	case len(args) == 0:
 		if !strings.HasSuffix(urlStruct.Path, "/") {
@@ -765,7 +733,11 @@ func buildURL(output io.Writer, flags *flagSet, args []string) *url.URL {
 		}
 	}
 
-	return urlStruct
+	if len(args) > 1 {
+		urlStruct.RawQuery = buildQueryString(args)
+	}
+
+	return urlStruct, nil
 }
 
 func naemonName(state int) string {
@@ -796,7 +768,7 @@ func naemonState(state string) int {
 
 func parseTimeout(flagTimeout string) (timeout time.Duration, timeoutExit int, err error) {
 	timeout = 10 * time.Second
-	timeoutExit = 2
+	timeoutExit = 3
 	if flagTimeout != "" {
 		fields := strings.Split(flagTimeout, ":")
 		if len(fields) > 1 {
@@ -810,4 +782,48 @@ func parseTimeout(flagTimeout string) (timeout time.Duration, timeoutExit int, e
 	}
 
 	return
+}
+
+func buildQueryString(args []string) string {
+	var param strings.Builder
+	for i, arg := range args {
+		if i == 0 {
+			continue
+		} else if i > 1 {
+			param.WriteString("&")
+		}
+
+		p := strings.SplitN(arg, "=", 2)
+		if len(p) == 1 {
+			param.WriteString(url.QueryEscape(p[0]))
+		} else {
+			param.WriteString(url.QueryEscape(p[0]) + "=" + url.QueryEscape(p[1]))
+		}
+	}
+
+	return param.String()
+}
+
+func buildRequest(ctx context.Context, output io.Writer, query string, flags *flagSet) (req *http.Request, err error) {
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, query, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("request: %s", err.Error())
+	}
+
+	if flags.APIVersion == "1" && flags.Login != "" {
+		req.Header.Add("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(flags.Login+":"+flags.Password)))
+	} else {
+		req.Header.Add("password", flags.Password)
+	}
+
+	if flags.Verbose {
+		dumpreq, err2 := httputil.DumpRequestOut(req, true)
+		if err2 != nil {
+			fmt.Fprintf(output, "REQUEST-ERROR:\n%s\n", err2.Error())
+		}
+
+		fmt.Fprintf(output, ">>>>>>REQUEST:\n%s\n>>>>>>\n", dumpreq)
+	}
+
+	return req, nil
 }

@@ -1,6 +1,6 @@
 module github.com/consol-monitoring/check_nsc_web
 
-go 1.21
+go 1.22
 
 replace pkg/checknscweb => ./pkg/checknscweb
 

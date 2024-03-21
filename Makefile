@@ -7,9 +7,10 @@ GOVERSION:=$(shell \
     go version | \
     awk -F'go| ' '{ split($$5, a, /\./); printf ("%04d%04d", a[1], a[2]); exit; }' \
 )
-# also update README.md and .github/workflows/citest.yml when changing minumum version
-MINGOVERSION:=00010021
-MINGOVERSIONSTR:=1.21
+# also update .github/workflows/citest.yml when changing minumum version
+# find . -name go.mod
+MINGOVERSION:=00010022
+MINGOVERSIONSTR:=1.22
 BUILD:=$(shell git rev-parse --short HEAD)
 REVISION:=$(shell printf "%04d" $$( git rev-list --all --count))
 # see https://github.com/go-modules-by-example/index/blob/master/010_tools/README.md
@@ -172,8 +173,8 @@ clean:
 	rm -f *.linux.*
 	rm -f *.darwin.*
 	rm -f *.freebsd.*
-	rm -rf go.work
-	rm -rf go.work.sum
+	rm -f go.work
+	rm -f go.work.sum
 	rm -f cover.out
 	rm -f coverage.html
 	rm -f coverage.txt

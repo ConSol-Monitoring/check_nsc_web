@@ -225,8 +225,8 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 
 		return 3
 	}
-	defer hClient.CloseIdleConnections()
 
+	log.SetOutput(io.Discard) // avoid "Unsolicited response received on idle HTTP channel starting with" messages
 	req, err := buildRequest(ctx, output, queryURL.String(), flags)
 	if err != nil {
 		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
@@ -251,6 +251,7 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 
 		return errorExit
 	}
+	hClient.CloseIdleConnections()
 
 	if flags.Verbose {
 		dumpres, err2 := httputil.DumpResponse(res, true)
@@ -261,7 +262,6 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 		fmt.Fprintf(output, "<<<<<<RESPONSE:\n%s\n<<<<<<\n", dumpres)
 	}
 
-	log.SetOutput(io.Discard)
 	contents, err := extractHTTPResponse(res)
 	if err != nil {
 		fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err.Error())

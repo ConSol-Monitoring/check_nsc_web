@@ -2,6 +2,7 @@ This file documents the revision history for check_nsc_web
 
 next:
           - minimum go version is now 1.22
+          - silence "Unsolicited response received" messages
 
 0.7.1    Wed Mar 13 20:30:41 CET 2024
           - remove url parameters from error output

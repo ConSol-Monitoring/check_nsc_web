@@ -385,6 +385,8 @@ func getTLSClientConfig(output io.Writer, flags *flagSet) (cfg *tls.Config, err 
 
 	cfg.MaxVersion = tlsMax
 
+	cfg.CipherSuites = getCipherList(tlsMin)
+
 	if flags.ClientCert != "" {
 		if flags.ClientKey == "" {
 			return nil, fmt.Errorf("-K is required when using -C")
@@ -826,4 +828,25 @@ func buildRequest(ctx context.Context, output io.Writer, query string, flags *fl
 	}
 
 	return req, nil
+}
+
+func getCipherList(tlsmin uint16) (ciphers []uint16) {
+	// no cipher configurable with tls 1.3 or later
+	if tlsmin >= tls.VersionTLS13 {
+		return nil
+	}
+
+	for _, cipher := range tls.CipherSuites() {
+		ciphers = append(ciphers, cipher.ID)
+	}
+
+	// add insecure ciphers for tls1.2 or older
+	// nscp speaks tls1.2 but uses old ciphers excluded by go (>= 1.22) by default
+	if tlsmin <= tls.VersionTLS12 {
+		for _, cipher := range tls.InsecureCipherSuites() {
+			ciphers = append(ciphers, cipher.ID)
+		}
+	}
+
+	return
 }

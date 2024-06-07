@@ -607,12 +607,12 @@ func sendOutput(output io.Writer, flags *flagSet, queryResult *queryV1) int {
 			perf := line.Perf[perfName]
 			// REFERENCE 'label'=value[UOM];[warn];[crit];[min];[max]
 			var (
-				val string
-				uni string
-				war string
-				cri string
-				min string
-				max string
+				val  string
+				uni  string
+				war  string
+				cri  string
+				mini string
+				maxi string
 			)
 
 			if perf.Value != nil {
@@ -641,14 +641,16 @@ func sendOutput(output io.Writer, flags *flagSet, queryResult *queryV1) int {
 			}
 
 			if perf.Minimum != nil {
-				min = strconv.FormatFloat(*(perf.Minimum), 'f', flags.Floatround, 64)
+				mini = strconv.FormatFloat(*(perf.Minimum), 'f', flags.Floatround, 64)
 			}
 
 			if perf.Maximum != nil {
-				max = strconv.FormatFloat(*(perf.Maximum), 'f', flags.Floatround, 64)
+				maxi = strconv.FormatFloat(*(perf.Maximum), 'f', flags.Floatround, 64)
 			}
 
-			nagiosPerfdata = append(nagiosPerfdata, fmt.Sprintf("'%s'=%s%s;%s;%s;%s;%s", perfName, val, uni, war, cri, min, max))
+			nagiosPerfdata = append(nagiosPerfdata,
+				fmt.Sprintf("'%s'=%s%s;%s;%s;%s;%s", perfName, val, uni, war, cri, mini, maxi),
+			)
 		}
 	}
 
@@ -815,7 +817,7 @@ func buildRequest(ctx context.Context, output io.Writer, query string, flags *fl
 	if flags.APIVersion == "1" && flags.Login != "" {
 		req.Header.Add("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(flags.Login+":"+flags.Password)))
 	} else {
-		req.Header.Add("password", flags.Password)
+		req.Header.Add("Password", flags.Password)
 	}
 
 	if flags.Verbose {

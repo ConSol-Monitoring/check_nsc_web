@@ -21,15 +21,11 @@ linters:
   disable:
     - cyclop
     - depguard
-    - exhaustivestruct
     - exhaustruct
+    - err113
     - gochecknoglobals
     - gochecknoinits
-    - goerr113
     - gofumpt
-    - ifshort
-    - interfacer
-    - maligned
     - nonamedreturns
     - paralleltest
     - perfsprint
@@ -37,18 +33,14 @@ linters:
     - testpackage
     - wsl
     # deprecated
-    - deadcode
-    - structcheck
-    - varcheck
-    - scopelint
-    - nosnakecase
-    - golint
+    - execinquery
+    - gomnd
 issues:
   max-same-issues: 0
   max-issues-per-linter: 0
   exclude-use-default: true
   exclude:
-    - "mnd: Magic number: 2, in"
-    - "mnd: Magic number: 3, in"
-    - "mnd: Magic number: 10, in"
+    - "Magic number: 2, in"
+    - "Magic number: 3, in"
+    - "Magic number: 10, in"
     - "fieldalignment: struct"

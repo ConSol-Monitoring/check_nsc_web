@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"pkg/checknscweb"
+	"github.com/consol-monitoring/check_nsc_web/pkg/checknscweb"
 )
 
 func main() {

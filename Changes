@@ -1,5 +1,8 @@
 This file documents the revision history for check_nsc_web
 
+next:
+          - update dependencies
+
 0.7.2    Thu Mar 21 17:14:07 CET 2024
           - minimum go version is now 1.22
           - silence "Unsolicited response received" messages

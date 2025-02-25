@@ -20,7 +20,7 @@ jobs:
     - run: make citest
     - run: make
     - name: extract built binary
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: check_nsc_web-go${{ matrix.go-version }}
         path: check_nsc_web

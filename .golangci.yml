@@ -33,8 +33,7 @@ linters:
     - testpackage
     - wsl
     # deprecated
-    - execinquery
-    - gomnd
+    - tenv
 issues:
   max-same-issues: 0
   max-issues-per-linter: 0

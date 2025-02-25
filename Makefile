@@ -9,8 +9,8 @@ GOVERSION:=$(shell \
 )
 # also update .github/workflows/citest.yml when changing minumum version
 # find . -name go.mod
-MINGOVERSION:=00010022
-MINGOVERSIONSTR:=1.22
+MINGOVERSION:=00010023
+MINGOVERSIONSTR:=1.23
 BUILD:=$(shell git rev-parse --short HEAD)
 REVISION:=$(shell printf "%04d" $$( git rev-list --all --count))
 # see https://github.com/go-modules-by-example/index/blob/master/010_tools/README.md

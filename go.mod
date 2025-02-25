@@ -1,6 +1,6 @@
 module github.com/consol-monitoring/check_nsc_web
 
-go 1.22
+go 1.23
 
 require github.com/stretchr/testify v1.10.0
 

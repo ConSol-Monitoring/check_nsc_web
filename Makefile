@@ -28,8 +28,11 @@ all: build
 CMDS = $(shell cd ./cmd && ls -1)
 
 tools: | versioncheck
-	set -e; for DEP in $(shell grep "_ " buildtools/tools.go | awk '{ print $$2 }'); do \
+	set -e; for DEP in $(shell grep "_ " buildtools/tools.go | awk '{ print $$2 }' | grep -v go-spew); do \
 		( cd buildtools && $(GO) install $$DEP@latest ) ; \
+	done
+	set -e; for DEP in $(shell grep "_ " buildtools/tools.go | awk '{ print $$2 }' | grep go-spew); do \
+		( cd buildtools && $(GO) install $$DEP ) ; \
 	done
 	( cd buildtools && $(GO) mod tidy )
 
@@ -37,7 +40,11 @@ updatedeps: versioncheck
 	$(MAKE) clean
 	$(MAKE) tools
 	$(GO) mod download
-	GOPROXY=direct $(GO) get -t -u ./pkg/* ./cmd/*
+	set -e; for dir in $(shell ls -d1 pkg/*); do \
+		( cd ./$$dir && $(GO) mod download ); \
+		( cd ./$$dir && GOPROXY=direct $(GO) get -u ); \
+		( cd ./$$dir && GOPROXY=direct $(GO) get -t -u ); \
+	done
 	$(GO) mod download
 	$(MAKE) cleandeps
 
@@ -49,13 +56,13 @@ cleandeps:
 	( cd buildtools && $(GO) mod tidy )
 
 vendor: go.work
+	$(GO) mod download
+	$(GO) mod tidy
 	GOWORK=off $(GO) mod vendor
 
-go.work:
-	echo "go $(MINGOVERSIONSTR).0" > go.work
-	$(GO) work use \
-		. \
-		buildtools/. \
+go.work: pkg/*
+	echo "go $(MINGOVERSIONSTR)" > go.work
+	$(GO) work use . pkg/* cmd/* buildtools/.
 
 build: vendor
 	set -e; for CMD in $(CMDS); do \
@@ -204,8 +211,11 @@ golangci: tools
 	# golangci combines a few static code analyzer
 	# See https://github.com/golangci/golangci-lint
 	#
-	@echo "  - GOOS=linux"; \
-	GOOS=linux CGO_ENABLED=0 golangci-lint run --timeout=5m pkg/... cmd/...
+	@set -e; for dir in $$(ls -1d pkg/* cmd); do \
+		echo $$dir; \
+		echo "  - GOOS=linux"; \
+		( cd $$dir && GOOS=linux golangci-lint run --timeout=5m ./... ); \
+	done
 
 govulncheck: tools
 	govulncheck ./...

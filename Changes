@@ -2,6 +2,7 @@ This file documents the revision history for check_nsc_web
 
 next:
           - update dependencies
+          - send client timeout as http header
           - minimum go version is now 1.23
 
 0.7.2    Thu Mar 21 17:14:07 CET 2024

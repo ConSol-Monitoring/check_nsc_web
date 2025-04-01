@@ -236,6 +236,9 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 
 	res, err := hClient.Do(req)
 	if err != nil {
+		if flags.Verbose {
+			fmt.Fprintf(output, "HTTP ERROR: %#v\n", err)
+		}
 		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
 			fmt.Fprintf(output, "%s - check timed out after %s ( %s )\n%s",
 				naemonName(timeoutExit), timeout.String(), flags.URL, err.Error())
@@ -828,6 +831,10 @@ func buildRequest(ctx context.Context, output io.Writer, query string, flags *fl
 
 		fmt.Fprintf(output, ">>>>>>REQUEST:\n%s\n>>>>>>\n", dumpreq)
 	}
+
+	// give server hint about timeout
+	timeout, _, _ := parseTimeout(flags.Timeout)
+	req.Header.Add("X-Nsc-Web-Timeout", fmt.Sprintf("%.2f", timeout.Seconds()))
 
 	return req, nil
 }

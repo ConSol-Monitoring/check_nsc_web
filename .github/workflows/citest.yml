@@ -56,6 +56,9 @@ jobs:
           net stop nscp
           net start nscp
 
+          # give it some time to start
+          Start-Sleep -Seconds 5
+
           # check if connection works
           .\check_nsc_web.exe -k -p test -u https://127.0.0.1:8443                    ; if ($LASTEXITCODE -ne 0) { exit 1 }
           .\check_nsc_web.exe -k -p test -u https://127.0.0.1:8443 check_nscp_version ; if ($LASTEXITCODE -ne 0) { exit 1 }

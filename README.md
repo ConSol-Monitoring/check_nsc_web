@@ -1,6 +1,6 @@
 # About check_nsc_web
 
-**check_nsc_web** collects check results from NSClient++/SNClient+ agents using its REST API. It is an alternative to check_nrpe et al.
+**check_nsc_web** collects check results from NSClient++/SNClient agents using its REST API. It is an alternative to check_nrpe et al.
 check_nsc_web can be used with any monitoring tool, that can use Naemon/Nagios compatible plugins.
 
 To be easily portable, check_nsc_web is written in Go.
@@ -69,7 +69,7 @@ Usage:
   check_nsc_web [options] [query parameters]
 
 Description:
-  check_nsc_web is a REST client for the NSClient++/SNClient+ webserver for querying
+  check_nsc_web is a REST client for the NSClient++/SNClient webserver for querying
   and receiving check information over HTTP(S).
 
 Example:
@@ -85,8 +85,8 @@ Example:
 Options:
   -u <url>                 SNClient/NSCLient++ URL, for example https://10.1.2.3:8443
   -t <seconds>[:<STATE>]   Connection timeout in seconds. Default: 10sec
-                          Optional set timeout state: 0-3 or OK, WARNING, CRITICAL, UNKNOWN
-                          (default timeout state is UNKNOWN)
+                           Optional set timeout state: 0-3 or OK, WARNING, CRITICAL, UNKNOWN
+                           (default timeout state is UNKNOWN)
   -e <STATE>               exit code for connection errors. Default is UNKNOWN.
   -a <api version>         API version of SNClient/NSClient++ (legacy or 1) Default: legacy
   -l <username>            REST webserver login. Default: admin

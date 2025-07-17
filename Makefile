@@ -28,11 +28,8 @@ all: build
 CMDS = $(shell cd ./cmd && ls -1)
 
 tools: | versioncheck
-	set -e; for DEP in $(shell grep "_ " buildtools/tools.go | awk '{ print $$2 }' | grep -v go-spew); do \
+	set -e; for DEP in $(shell grep "_ " buildtools/tools.go | awk '{ print $$2 }'); do \
 		( cd buildtools && $(GO) install $$DEP@latest ) ; \
-	done
-	set -e; for DEP in $(shell grep "_ " buildtools/tools.go | awk '{ print $$2 }' | grep go-spew); do \
-		( cd buildtools && $(GO) install $$DEP ) ; \
 	done
 	( cd buildtools && $(GO) mod tidy )
 
@@ -40,11 +37,7 @@ updatedeps: versioncheck
 	$(MAKE) clean
 	$(MAKE) tools
 	$(GO) mod download
-	set -e; for dir in $(shell ls -d1 pkg/*); do \
-		( cd ./$$dir && $(GO) mod download ); \
-		( cd ./$$dir && GOPROXY=direct $(GO) get -u ); \
-		( cd ./$$dir && GOPROXY=direct $(GO) get -t -u ); \
-	done
+	GOPROXY=direct $(GO) get -t -u ./pkg/* ./cmd/*
 	$(GO) mod download
 	$(MAKE) cleandeps
 
@@ -56,13 +49,13 @@ cleandeps:
 	( cd buildtools && $(GO) mod tidy )
 
 vendor: go.work
-	$(GO) mod download
-	$(GO) mod tidy
 	GOWORK=off $(GO) mod vendor
 
-go.work: pkg/*
+go.work:
 	echo "go $(MINGOVERSIONSTR)" > go.work
-	$(GO) work use . pkg/* cmd/* buildtools/.
+	$(GO) work use \
+		. \
+		buildtools/. \
 
 build: vendor
 	set -e; for CMD in $(CMDS); do \

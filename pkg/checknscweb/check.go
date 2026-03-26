@@ -429,38 +429,25 @@ func getTLSClientConfig(output io.Writer, flags *flagSet) (cfg *tls.Config, err 
 }
 
 func parseEnvironmentVariables(flags *flagSet) {
-
 	if val, ok := os.LookupEnv("check_nsc_web_password"); ok {
 		flags.Password = val
 	}
 	if val, ok := os.LookupEnv("CHECK_NSC_WEB_PASSWORD"); ok {
-		if len(flags.Password) > 0 {
-			//fmt.Printf("Lowercase environment variable check_nsc_web_password takes predence over uppercase variant CHECK_NSC_WEB_PASSWORD\n")
-		} else {
-			flags.Password = val
-		}
+		flags.Password = val
 	}
 
 	if val, ok := os.LookupEnv("check_nsc_web_login"); ok {
 		flags.Login = val
 	}
 	if val, ok := os.LookupEnv("CHECK_NSC_WEB_LOGIN"); ok {
-		if len(flags.Login) > 0 {
-			//fmt.Printf("Lowercase environment variable check_nsc_web_login takes predence over uppercase variant CHECK_NSC_WEB_LOGIN\n")
-		} else {
-			flags.Login = val
-		}
+		flags.Login = val
 	}
 
 	if val, ok := os.LookupEnv("check_nsc_web_timeout"); ok {
 		flags.Timeout = val
 	}
 	if val, ok := os.LookupEnv("CHECK_NSC_WEB_TIMEOUT"); ok {
-		if len(flags.Timeout) > 0 {
-			//fmt.Printf("Lowercase environment variable check_nsc_web_timeout takes predence over uppercase variant CHECK_NSC_WEB_TIMEOUT\n")
-		} else {
-			flags.Timeout = val
-		}
+		flags.Timeout = val
 	}
 }
 

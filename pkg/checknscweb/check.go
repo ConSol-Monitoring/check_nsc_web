@@ -83,6 +83,19 @@ TLS/SSL Options:
   -tlshostname <string>    Use this servername when verifying tls server name
   -k                       Insecure mode - skip TLS verification
 
+Environment Variables:
+  Lowercase environment variables take predence over uppercase ones.
+  Command line options take predence over environment variables.
+
+  check_nsc_web_password   REST webserver password
+  CHECK_NSC_WEB_PASSWORD
+  check_nsc_web_login      REST webserver login
+  CHECK_NSC_WEB_LOGIN
+  check_nsc_web_timeout    Connection timeout in seconds
+                           Optional set timeout state: 0-3 or OK, WARNING, CRITICAL, UNKNOWN
+                           (default timeout state is UNKNOWN)
+  CHECK_NSC_WEB_TIMEOUT
+
 Output Options:
   -h                       Print help
   -v                       Enable verbose output

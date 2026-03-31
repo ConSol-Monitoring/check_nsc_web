@@ -15,12 +15,12 @@ func TestCheck(t *testing.T) {
 	ctx := context.TODO()
 	buf := &bytes.Buffer{}
 
-	exitCode := Check(ctx, buf, []string{"-h"})
+	exitCode := Check(ctx, buf, []string{"-h"}, nil)
 	assert.Equal(t, 3, exitCode)
 	assert.Contains(t, buf.String(), "Usage:")
 
 	buf.Reset()
-	exitCode = Check(ctx, buf, []string{"-p", "password", "-u", "http://localhost:12345", "check_cpu"})
+	exitCode = Check(ctx, buf, []string{"-p", "password", "-u", "http://localhost:12345", "check_cpu"}, nil)
 	assert.Equal(t, 3, exitCode)
 	assert.Contains(t, buf.String(), "UNKNOWN")
 	assert.Contains(t, buf.String(), "connect:")
@@ -42,7 +42,7 @@ query check_cpu show-all
 	err := os.WriteFile(tmpFile, []byte(config), 0o600)
 	require.NoError(t, err)
 
-	exitCode := Check(ctx, buf, []string{"-config", tmpFile})
+	exitCode := Check(ctx, buf, []string{"-config", tmpFile}, nil)
 	assert.Equal(t, 3, exitCode)
 	assert.Contains(t, buf.String(), "UNKNOWN")
 	assert.Contains(t, buf.String(), "connect:")

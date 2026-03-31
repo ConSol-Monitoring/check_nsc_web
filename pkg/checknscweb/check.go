@@ -211,8 +211,16 @@ type flagSet struct {
 	Config        string
 }
 
-func Check(ctx context.Context, output io.Writer, osArgs []string) int {
-	flags, args := parseFlags(osArgs, output)
+func Check(ctx context.Context, output io.Writer, osArgs, osEnv []string) int {
+	if osArgs == nil {
+		osArgs = make([]string, 0)
+	}
+
+	if osEnv == nil {
+		osEnv = make([]string, 0)
+	}
+
+	flags, args := parseFlagsAndEnvironment(osArgs, osEnv, output)
 	if flags == nil {
 		return 3
 	}
@@ -441,30 +449,28 @@ func getTLSClientConfig(output io.Writer, flags *flagSet) (cfg *tls.Config, err 
 	return cfg, nil
 }
 
-func parseEnvironmentVariables(flags *flagSet) {
-	if val, ok := os.LookupEnv("check_nsc_web_password"); ok {
-		flags.Password = val
-	}
-	if val, ok := os.LookupEnv("CHECK_NSC_WEB_PASSWORD"); ok {
-		flags.Password = val
-	}
+func parseEnvironmentVariables(flags *flagSet, env []string) {
+	for _, envVariableString := range env {
+		splits := strings.SplitN(envVariableString, "=", 2)
+		if len(splits) != 2 {
+			continue
+		}
 
-	if val, ok := os.LookupEnv("check_nsc_web_login"); ok {
-		flags.Login = val
-	}
-	if val, ok := os.LookupEnv("CHECK_NSC_WEB_LOGIN"); ok {
-		flags.Login = val
-	}
+		key := splits[0]
+		value := splits[1]
 
-	if val, ok := os.LookupEnv("check_nsc_web_timeout"); ok {
-		flags.Timeout = val
-	}
-	if val, ok := os.LookupEnv("CHECK_NSC_WEB_TIMEOUT"); ok {
-		flags.Timeout = val
+		switch key {
+		case "check_nsc_web_password", "CHECK_NSC_WEB_PASSWORD":
+			flags.Password = value
+		case "check_nsc_web_login", "CHECK_NSC_WEB_LOGIN":
+			flags.Login = value
+		case "check_nsc_web_timeout", "CHECK_NSC_WEB_TIMEOUT":
+			flags.Timeout = value
+		}
 	}
 }
 
-func parseFlags(osArgs []string, output io.Writer) (flags *flagSet, args []string) {
+func parseFlagsAndEnvironment(osArgs, env []string, output io.Writer) (flags *flagSet, args []string) {
 	flags = &flagSet{}
 	flagSet := flag.NewFlagSet("check_nsc_web", flag.ContinueOnError)
 	flagSet.SetOutput(output)
@@ -494,7 +500,7 @@ func parseFlags(osArgs []string, output io.Writer) (flags *flagSet, args []strin
 
 	flagSet.StringVar(&flags.Query, "query", "", "placeholder for query string from config file")
 
-	parseEnvironmentVariables(flags)
+	parseEnvironmentVariables(flags, env)
 
 	err := flagSet.Parse(osArgs)
 	if errors.Is(err, flag.ErrHelp) {

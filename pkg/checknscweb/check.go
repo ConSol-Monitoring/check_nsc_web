@@ -84,7 +84,6 @@ TLS/SSL Options:
   -k                       Insecure mode - skip TLS verification
 
 Environment Variables:
-  Lowercase environment variables take predence over uppercase ones.
   Command line options take predence over environment variables.
 
   check_nsc_web_password   REST webserver password

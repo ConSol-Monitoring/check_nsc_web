@@ -1,5 +1,8 @@
 This file documents the revision history for check_nsc_web
 
+next     ----
+          - Add environment variables for sensitive information that should not be passed through command line: password, login and timeout
+
 0.7.4    Thu Jul 17 10:55:56 CEST 2025
           - update dependencies
 
@@ -89,4 +92,3 @@ This file documents the revision history for check_nsc_web
 
 0.1.0    Wed Oct 12 07:22:31 2016 +0200
           - initial version
-

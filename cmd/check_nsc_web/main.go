@@ -12,7 +12,7 @@ import (
 
 func main() {
 	output := bytes.NewBuffer(nil)
-	rc := checknscweb.Check(context.Background(), output, os.Args[1:])
+	rc := checknscweb.Check(context.Background(), output, os.Args[1:], os.Environ())
 	res := strings.TrimSpace(output.String())
 	fmt.Fprintf(os.Stdout, "%s\n", res)
 	os.Exit(rc)

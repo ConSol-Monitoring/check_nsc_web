@@ -83,6 +83,18 @@ TLS/SSL Options:
   -tlshostname <string>    Use this servername when verifying tls server name
   -k                       Insecure mode - skip TLS verification
 
+Environment Variables:
+  Command line options take predence over environment variables.
+
+  check_nsc_web_password   REST webserver password
+  CHECK_NSC_WEB_PASSWORD
+  check_nsc_web_login      REST webserver login
+  CHECK_NSC_WEB_LOGIN
+  check_nsc_web_timeout    Connection timeout in seconds
+                           Optional set timeout state: 0-3 or OK, WARNING, CRITICAL, UNKNOWN
+                           (default timeout state is UNKNOWN)
+  CHECK_NSC_WEB_TIMEOUT
+
 Output Options:
   -h                       Print help
   -v                       Enable verbose output
@@ -198,8 +210,16 @@ type flagSet struct {
 	Config        string
 }
 
-func Check(ctx context.Context, output io.Writer, osArgs []string) int {
-	flags, args := parseFlags(osArgs, output)
+func Check(ctx context.Context, output io.Writer, osArgs, osEnv []string) int {
+	if osArgs == nil {
+		osArgs = make([]string, 0)
+	}
+
+	if osEnv == nil {
+		osEnv = make([]string, 0)
+	}
+
+	flags, args := parseFlagsAndEnvironment(osArgs, osEnv, output)
 	if flags == nil {
 		return 3
 	}
@@ -428,7 +448,28 @@ func getTLSClientConfig(output io.Writer, flags *flagSet) (cfg *tls.Config, err 
 	return cfg, nil
 }
 
-func parseFlags(osArgs []string, output io.Writer) (flags *flagSet, args []string) {
+func parseEnvironmentVariables(flags *flagSet, env []string) {
+	for _, envVariableString := range env {
+		splits := strings.SplitN(envVariableString, "=", 2)
+		if len(splits) != 2 {
+			continue
+		}
+
+		key := splits[0]
+		value := splits[1]
+
+		switch key {
+		case "check_nsc_web_password", "CHECK_NSC_WEB_PASSWORD":
+			flags.Password = value
+		case "check_nsc_web_login", "CHECK_NSC_WEB_LOGIN":
+			flags.Login = value
+		case "check_nsc_web_timeout", "CHECK_NSC_WEB_TIMEOUT":
+			flags.Timeout = value
+		}
+	}
+}
+
+func parseFlagsAndEnvironment(osArgs, env []string, output io.Writer) (flags *flagSet, args []string) {
 	flags = &flagSet{}
 	flagSet := flag.NewFlagSet("check_nsc_web", flag.ContinueOnError)
 	flagSet.SetOutput(output)
@@ -457,6 +498,8 @@ func parseFlags(osArgs []string, output io.Writer) (flags *flagSet, args []strin
 	}
 
 	flagSet.StringVar(&flags.Query, "query", "", "placeholder for query string from config file")
+
+	parseEnvironmentVariables(flags, env)
 
 	err := flagSet.Parse(osArgs)
 	if errors.Is(err, flag.ErrHelp) {

@@ -41,7 +41,7 @@ import (
 	"time"
 )
 
-const VERSION = "0.7.5"
+const VERSION = "0.7.6"
 
 const USAGE = `Usage:
   check_nsc_web [options] [query parameters]

@@ -1,5 +1,8 @@
 This file documents the revision history for check_nsc_web
 
+next:
+          - minimum go version is now 1.26
+
 0.7.5    Tue Apr  7 16:15:20 CEST 2026
           - Add environment variables for sensitive information that should not be passed through command line: password, login and timeout
           - update dependencies

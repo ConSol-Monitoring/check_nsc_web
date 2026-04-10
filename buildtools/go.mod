@@ -1,8 +1,6 @@
 module tools
 
-go 1.23.0
-
-toolchain go1.24.4
+go 1.26
 
 require (
 	github.com/daixiang0/gci v0.13.6

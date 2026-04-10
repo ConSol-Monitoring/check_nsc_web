@@ -2,7 +2,6 @@ package checknscweb
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,7 +11,7 @@ import (
 )
 
 func TestCheck(t *testing.T) {
-	ctx := context.TODO()
+	ctx := t.Context()
 	buf := &bytes.Buffer{}
 
 	exitCode := Check(ctx, buf, []string{"-h"}, nil)
@@ -28,7 +27,7 @@ func TestCheck(t *testing.T) {
 }
 
 func TestCheckConfig(t *testing.T) {
-	ctx := context.TODO()
+	ctx := t.Context()
 	buf := &bytes.Buffer{}
 	tmpFile := filepath.Join(t.TempDir(), "config")
 

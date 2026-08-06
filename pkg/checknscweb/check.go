@@ -18,13 +18,14 @@ package checknscweb
 // Original Author 2016 Michael Kraus
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -33,34 +34,41 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/namsral/flag"
 )
 
-const VERSION = "0.6.2"
+const VERSION = "0.7.6"
 
-const usage = `Usage:
+const USAGE = `Usage:
   check_nsc_web [options] [query parameters]
 
 Description:
-  check_nsc_web is a REST client for the NSClient++/SNClient+ webserver for querying
-  and receiving check information over HTTPS.
+  check_nsc_web is a REST client for the NSClient++/SNClient webserver for querying
+  and receiving check information over HTTP(S).
 
 Version:
   check_nsc_web v` + VERSION + `
 
 Example:
-  check_nsc_web -p "password" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_cpu
+  connectivity check (parent service):
+  check_nsc_web -p "password" -u "https://<SERVER>:8443"
 
-  check_nsc_web -p "password" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_drivesize disk=c
+  check without arguments:
+  check_nsc_web -p "password" -u "https://<SERVER>:8443" check_cpu
+
+  check with arguments:
+  check_nsc_web -p "password" -u "https://<SERVER>:8443" check_drivesize disk=c
 
 Options:
   -u <url>                 SNClient/NSCLient++ URL, for example https://10.1.2.3:8443
-  -t <seconds>             Connection timeout in seconds. Default: 10
+  -t <seconds>[:<STATE>]   Connection timeout in seconds. Default: 10sec
+                           Optional set timeout state: 0-3 or OK, WARNING, CRITICAL, UNKNOWN
+                           (default timeout state is UNKNOWN)
+  -e <STATE>               exit code for connection errors. Default is UNKNOWN.
   -a <api version>         API version of SNClient/NSClient++ (legacy or 1) Default: legacy
   -l <username>            REST webserver login. Default: admin
   -p <password>            REST webserver password
@@ -75,9 +83,22 @@ TLS/SSL Options:
   -tlshostname <string>    Use this servername when verifying tls server name
   -k                       Insecure mode - skip TLS verification
 
+Environment Variables:
+  Command line options take predence over environment variables.
+
+  check_nsc_web_password   REST webserver password
+  CHECK_NSC_WEB_PASSWORD
+  check_nsc_web_login      REST webserver login
+  CHECK_NSC_WEB_LOGIN
+  check_nsc_web_timeout    Connection timeout in seconds
+                           Optional set timeout state: 0-3 or OK, WARNING, CRITICAL, UNKNOWN
+                           (default timeout state is UNKNOWN)
+  CHECK_NSC_WEB_TIMEOUT
+
 Output Options:
   -h                       Print help
   -v                       Enable verbose output
+  -vv                      Enable very verbose output (and log directly to stdout)
   -V                       Print program version
   -f <integer>             Round performance data float values to this number of digits. Default: -1
   -j                       Print out JSON response body
@@ -85,9 +106,21 @@ Output Options:
   -query <string>          Placeholder for query string from config file
 `
 
-// Query represents the nsclient response, which itself decomposes in lines in
-// which there may be several performance data.
-type PerfLine struct {
+// queryV1 represents the json response from snclient in version 1.
+type queryV1 struct {
+	Command string       `json:"command"`
+	Lines   []resultLine `json:"lines"`
+	Result  int          `json:"result"`
+}
+
+// resultLine is one entry in the result.
+type resultLine struct {
+	Message string              `json:"message"`
+	Perf    map[string]perfLine `json:"perf"`
+}
+
+// perfLine represents the nsclient performance data response.
+type perfLine struct {
 	Value    interface{} `json:"value,omitempty"`
 	Unit     *string     `json:"unit,omitempty"`
 	Warning  interface{} `json:"warning,omitempty"`
@@ -96,19 +129,8 @@ type PerfLine struct {
 	Maximum  *float64    `json:"maximum,omitempty"`
 }
 
-type ResultLine struct {
-	Message string              `json:"message"`
-	Perf    map[string]PerfLine `json:"perf"`
-}
-
-// Query type depends on API version (v1 or legacy).
-type QueryV1 struct {
-	Command string       `json:"command"`
-	Lines   []ResultLine `json:"lines"`
-	Result  int          `json:"result"`
-}
-
-type QueryLeg struct {
+// queryLegacy represents the json response from snclient using the legacy version.
+type queryLegacy struct {
 	Header struct {
 		SourceID string `json:"source_id"`
 	} `json:"header"`
@@ -118,45 +140,43 @@ type QueryLeg struct {
 			Message string `json:"message"`
 			Perf    []struct {
 				Alias      string    `json:"alias"`
-				IntValue   *PerfLine `json:"int_value,omitempty"`
-				FloatValue *PerfLine `json:"float_value,omitempty"`
+				IntValue   *perfLine `json:"int_value,omitempty"`
+				FloatValue *perfLine `json:"float_value,omitempty"`
 			} `json:"perf"`
 		} `json:"lines"`
 		Result string `json:"result"`
 	} `json:"payload"`
 }
 
-var ReturncodeMap = map[string]int{
-	"OK":       0,
-	"WARNING":  1,
-	"CRITICAL": 2,
-	"UNKNOWN":  3,
-}
-
-func (q QueryLeg) toV1() *QueryV1 {
-	qV1 := new(QueryV1)
+// toV1 converts a legacy response to version 1.
+func (q queryLegacy) toV1() *queryV1 {
+	qV1 := new(queryV1)
 	if len(q.Payload) == 0 {
 		return qV1
 	}
 
 	qV1.Command = q.Payload[0].Command
-	qV1.Result = ReturncodeMap[q.Payload[0].Result]
-	qV1.Lines = make([]ResultLine, 0)
+	qV1.Result = naemonState(q.Payload[0].Result)
+	qV1.Lines = make([]resultLine, 0)
 
 	for _, line := range q.Payload[0].Lines {
-		qV1.Lines = append(qV1.Lines, ResultLine{
+		qV1.Lines = append(qV1.Lines, resultLine{
 			Message: line.Message,
 		})
 
-		for _, p := range line.Perf {
-			perfL := map[string]PerfLine{}
-			if p.FloatValue != nil {
-				perfL[p.Alias] = *p.FloatValue
-			} else {
-				perfL[p.Alias] = *p.IntValue
+		for _, entry := range line.Perf {
+			perfL := map[string]perfLine{}
+
+			switch {
+			case entry.FloatValue != nil:
+				perfL[entry.Alias] = *entry.FloatValue
+			case entry.IntValue != nil:
+				perfL[entry.Alias] = *entry.IntValue
+			default:
+				continue
 			}
 
-			qV1.Lines = append(qV1.Lines, ResultLine{
+			qV1.Lines = append(qV1.Lines, resultLine{
 				Perf: perfL,
 			})
 		}
@@ -170,8 +190,10 @@ type flagSet struct {
 	Login         string
 	Password      string
 	APIVersion    string
-	Timeout       int
+	Timeout       string
+	ErrorExit     string
 	Verbose       bool
+	VeryVerbose   bool
 	JSON          bool
 	RawOutput     bool
 	Version       bool
@@ -185,216 +207,108 @@ type flagSet struct {
 	Floatround    int
 	Extratext     string
 	Query         string
+	Config        string
 }
 
-func Check(ctx context.Context, output io.Writer, osArgs []string) int {
-	flags := flagSet{}
-	flagSet := flag.NewFlagSet("check_nsc_web", flag.ContinueOnError)
-	flagSet.SetOutput(output)
-	flagSet.StringVar(&flags.URL, "u", "", "SNClient URL, for example https://10.1.2.3:8443")
-	flagSet.StringVar(&flags.Login, "l", "admin", "SNClient webserver login")
-	flagSet.StringVar(&flags.Password, "p", "", "SNClient webserver password")
-	flagSet.StringVar(&flags.APIVersion, "a", "legacy", "API version of SNClient (legacy or 1)")
-	flagSet.IntVar(&flags.Timeout, "t", 10, "Connection timeout in seconds")
-	flagSet.BoolVar(&flags.Verbose, "v", false, "Enable verbose output")
-	flagSet.BoolVar(&flags.JSON, "j", false, "Print out JSON response body")
-	flagSet.BoolVar(&flags.RawOutput, "r", false, "Print raw result without pre/post processing")
-	flagSet.BoolVar(&flags.Version, "V", false, "Print program version")
-	flagSet.BoolVar(&flags.Insecure, "k", false, "Insecure mode - skip TLS verification")
-	flagSet.StringVar(&flags.TLSMin, "tlsmin", "tls1.0", "Minimum tls version used to connect")
-	flagSet.StringVar(&flags.TLSMax, "tlsmax", "", "Maximum tls version used to connect")
-	flagSet.StringVar(&flags.TLSServerName, "tlshostname", "", "Use this servername when verifying tls server name")
-	flagSet.StringVar(&flags.ClientCert, "C", "", "Use client certificate (pem) to connect. Must provide -K as well")
-	flagSet.StringVar(&flags.ClientKey, "K", "", "Use client certificate key file to connect")
-	flagSet.StringVar(&flags.TLSCA, "ca", "", "Use certificate ca to verify server certificate")
-	flagSet.IntVar(&flags.Floatround, "f", -1, "Round performance data float values to this number of digits")
-	flagSet.Usage = func() {
-		fmt.Fprintf(output, "%s", usage)
+func Check(ctx context.Context, output io.Writer, osArgs, osEnv []string) int {
+	if osArgs == nil {
+		osArgs = make([]string, 0)
 	}
 
-	// These flags support loading config from file using "-config FILENAME"
-	flagSet.StringVar(&flags.Query, "query", "", "placeholder for query string from config file")
-	flagSet.String(flag.DefaultConfigFlagname, "", "path to config file")
-
-	err := flagSet.Parse(osArgs)
-	if errors.Is(err, flag.ErrHelp) {
-		return (3)
+	if osEnv == nil {
+		osEnv = make([]string, 0)
 	}
 
-	if flags.Version {
-		fmt.Fprintf(output, "check_nsc_web v%s", VERSION)
-
-		return (3)
+	flags, args := parseFlagsAndEnvironment(osArgs, osEnv, output)
+	if flags == nil {
+		return 3
 	}
 
-	seen := make(map[string]bool)
-
-	flagSet.Visit(func(f *flag.Flag) {
-		seen[f.Name] = true
-	})
-
-	for _, req := range []string{"u", "p"} {
-		if !seen[req] {
-			fmt.Fprintf(output, "UNKNOWN - missing required -%s argument\n", req)
-			flagSet.Usage()
-
-			return (3)
-		}
-	}
-
-	args := flagSet.Args()
-	// Has there a flag "query" been provided in the config file? Transform it into slice and append it to Args()
-	if seen["query"] {
-		q := strings.Split(flags.Query, " ")
-		args = append(args, q...)
-	}
-
-	timeout := time.Second * time.Duration(flags.Timeout)
-
-	urlStruct, err := url.Parse(flags.URL)
+	timeout, timeoutExit, err := parseTimeout(flags.Timeout)
 	if err != nil {
 		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
-		return (3)
+		return 3
 	}
+	errorExit := naemonState(flags.ErrorExit)
 
-	switch {
-	case flags.RawOutput:
-		if len(args) > 0 {
-			fmt.Fprintf(output, "UNKNOWN - no arguments supported in passthrough mode")
-
-			return (3)
-		}
-	case len(args) == 0:
-		if !strings.HasSuffix(urlStruct.Path, "/") {
-			urlStruct.Path += "/"
-		}
-	default:
-		if flags.APIVersion == "1" {
-			urlStruct.Path += "/api/v1/queries/" + args[0] + "/commands/execute"
-		} else {
-			urlStruct.Path += "/query/" + args[0]
-		}
-	}
-
-	if len(args) > 1 {
-		var param bytes.Buffer
-
-		for i, arg := range args {
-			if i == 0 {
-				continue
-			} else if i > 1 {
-				param.WriteString("&")
-			}
-
-			p := strings.SplitN(arg, "=", 2)
-			if len(p) == 1 {
-				param.WriteString(url.QueryEscape(p[0]))
-			} else {
-				param.WriteString(url.QueryEscape(p[0]) + "=" + url.QueryEscape(p[1]))
-			}
-
-			if err != nil {
-				fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
-
-				return (3)
-			}
-		}
-
-		urlStruct.RawQuery = param.String()
-	}
-
-	tlsConfig, err := getTLSClientConfig(output, &flags)
+	queryURL, err := buildURL(flags, args)
 	if err != nil {
 		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
-		return (3)
+		return 3
 	}
 
-	hTransport := &http.Transport{
-		TLSClientConfig: tlsConfig,
-		Dial: (&net.Dialer{
-			Timeout: timeout,
-		}).Dial,
-		ResponseHeaderTimeout: timeout,
-		TLSHandshakeTimeout:   timeout,
-		IdleConnTimeout:       timeout,
-	}
-	hClient := &http.Client{
-		Timeout:   timeout,
-		Transport: hTransport,
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStruct.String(), http.NoBody)
+	hClient, err := buildHTTPClient(output, flags, timeout)
 	if err != nil {
 		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
-		return (3)
+		return 3
 	}
 
-	if flags.APIVersion == "1" && flags.Login != "" {
-		req.Header.Add("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(flags.Login+":"+flags.Password)))
-	} else {
-		req.Header.Add("password", flags.Password)
-	}
+	log.SetOutput(io.Discard) // avoid "Unsolicited response received on idle HTTP channel starting with" messages
+	req, err := buildRequest(ctx, output, queryURL.String(), flags)
+	if err != nil {
+		fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
 
-	if flags.Verbose {
-		dumpreq, err := httputil.DumpRequestOut(req, true)
-		if err != nil {
-			fmt.Fprintf(output, "REQUEST-ERROR:\n%s\n", err.Error())
-		}
-
-		fmt.Fprintf(output, "REQUEST:\n%q\n", dumpreq)
+		return 3
 	}
 
 	res, err := hClient.Do(req)
 	if err != nil {
+		if flags.Verbose {
+			fmt.Fprintf(output, "HTTP ERROR: %#v\n", err)
+		}
 		if errors.Is(err, context.DeadlineExceeded) || os.IsTimeout(err) {
-			fmt.Fprintf(output, "UNKNOWN - check timed out after %s ( %s )\n%s", timeout.String(), flags.URL, err.Error())
-		} else {
-			fmt.Fprintf(output, "UNKNOWN - %s", err.Error())
+			fmt.Fprintf(output, "%s - check timed out after %s ( %s )\n%s",
+				naemonName(timeoutExit), timeout.String(), flags.URL, err.Error())
+
+			return timeoutExit
 		}
 
-		return (3)
+		// clean parameters from error message
+		msg := err.Error()
+		msg = regexp.MustCompile(`("https?://.*?)/[^"]*"`).ReplaceAllString(msg, "$1/...")
+
+		fmt.Fprintf(output, "%s - %s", naemonName(errorExit), msg)
+
+		return errorExit
 	}
+	hClient.CloseIdleConnections()
 
 	if flags.Verbose {
-		dumpres, err := httputil.DumpResponse(res, true)
-		if err != nil {
-			fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err.Error())
+		dumpres, err2 := httputil.DumpResponse(res, true)
+		if err2 != nil {
+			fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err2.Error())
 		}
 
-		fmt.Fprintf(output, "RESPONSE:\n%q\n", dumpres)
+		fmt.Fprintf(output, "<<<<<<RESPONSE:\n%s\n<<<<<<\n", dumpres)
 	}
-
-	log.SetOutput(io.Discard)
 
 	contents, err := extractHTTPResponse(res)
 	if err != nil {
 		fmt.Fprintf(output, "RESPONSE-ERROR: %s\n", err.Error())
 
-		return (3)
+		return errorExit
 	}
-
-	hClient.CloseIdleConnections()
 
 	if flags.RawOutput {
 		fmt.Fprintf(output, "\n%s", contents)
 
 		switch res.StatusCode {
 		case http.StatusOK:
-			return (0)
+			return 0
 		default:
-			return (3)
+			return errorExit
 		}
 	}
 
 	// check http status code
 	// getting 403 here means we're not allowed on the target (e.g. allowed hosts)
 	if res.StatusCode != http.StatusOK {
-		fmt.Fprintf(output, "UNKNOWN - HTTP %s", res.Status)
+		fmt.Fprintf(output, "%s - HTTP %s", naemonName(errorExit), res.Status)
 
-		return (3)
+		return errorExit
 	}
 
 	if len(args) == 0 {
@@ -404,121 +318,30 @@ func Check(ctx context.Context, output io.Writer, osArgs []string) int {
 			fmt.Fprintf(output, "\n%s", contents)
 		}
 
-		return (0)
+		return 0
 	}
 
-	queryResult := new(QueryV1)
-	if flags.APIVersion == "1" {
-		err = json.Unmarshal(contents, &queryResult)
-		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
+	queryResult, err := extractResult(output, flags, contents)
+	if err != nil {
+		fmt.Fprintf(output, "%s - %s", naemonName(errorExit), err.Error())
 
-			return (3)
-		}
-	} else {
-		queryLeg := new(QueryLeg)
-		err = json.Unmarshal(contents, &queryLeg)
-		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
-
-			return (3)
-		}
-
-		if len(queryLeg.Payload) == 0 {
-			if flags.Verbose {
-				fmt.Fprintf(output, "QUERY RESULT:\n%+v\n", queryLeg)
-			}
-			fmt.Fprintf(output, "UNKNOWN - The resultpayload size is 0")
-
-			return (3)
-		}
-		queryResult = queryLeg.toV1()
+		return errorExit
 	}
 
 	if flags.JSON {
 		jsonStr, err := json.Marshal(queryResult)
 		if err != nil {
-			fmt.Fprintf(output, "UNKNOWN - json error: %s", err.Error())
+			fmt.Fprintf(output, "%s - json error: %s", naemonName(errorExit), err.Error())
 
-			return (3)
+			return errorExit
 		}
 
 		fmt.Fprintf(output, "%s", jsonStr)
 
-		return (0)
+		return 0
 	}
 
-	nagiosMessage := ""
-	nagiosPerfdata := []string{}
-
-	for _, line := range queryResult.Lines {
-		nagiosMessage += strings.TrimSpace(line.Message)
-
-		// iterate by sorted sortedPerfLabel, otherwise the order of performance label is different every time
-		sortedPerfLabel := make([]string, 0, len(line.Perf))
-
-		for k := range line.Perf {
-			sortedPerfLabel = append(sortedPerfLabel, k)
-		}
-
-		sort.Strings(sortedPerfLabel)
-
-		for _, perfName := range sortedPerfLabel {
-			perf := line.Perf[perfName]
-			// REFERENCE 'label'=value[UOM];[warn];[crit];[min];[max]
-			var (
-				val string
-				uni string
-				war string
-				cri string
-				min string
-				max string
-			)
-
-			if perf.Value != nil {
-				switch perfVal := perf.Value.(type) {
-				case float64:
-					val = strconv.FormatFloat(perfVal, 'f', flags.Floatround, 64)
-				case string:
-					val = perfVal
-				default:
-					fmt.Fprintf(output, "UNKNOWN - json error: unknown value type: %T", perfVal)
-				}
-			} else {
-				continue
-			}
-
-			if perf.Unit != nil {
-				uni = (*(perf.Unit))
-			}
-
-			if perf.Warning != nil {
-				war = fmt.Sprintf("%v", perf.Warning)
-			}
-
-			if perf.Critical != nil {
-				cri = fmt.Sprintf("%v", perf.Critical)
-			}
-
-			if perf.Minimum != nil {
-				min = strconv.FormatFloat(*(perf.Minimum), 'f', flags.Floatround, 64)
-			}
-
-			if perf.Maximum != nil {
-				max = strconv.FormatFloat(*(perf.Maximum), 'f', flags.Floatround, 64)
-			}
-
-			nagiosPerfdata = append(nagiosPerfdata, fmt.Sprintf("'%s'=%s%s;%s;%s;%s;%s", perfName, val, uni, war, cri, min, max))
-		}
-	}
-
-	if len(nagiosPerfdata) == 0 {
-		fmt.Fprintf(output, "%s %s", nagiosMessage, flags.Extratext)
-	} else {
-		fmt.Fprintf(output, "%s %s|%s", nagiosMessage, flags.Extratext, strings.TrimSpace(strings.Join(nagiosPerfdata, " ")))
-	}
-
-	return (queryResult.Result)
+	return sendOutput(output, flags, queryResult)
 }
 
 func extractHTTPResponse(response *http.Response) (contents []byte, err error) {
@@ -585,6 +408,8 @@ func getTLSClientConfig(output io.Writer, flags *flagSet) (cfg *tls.Config, err 
 
 	cfg.MaxVersion = tlsMax
 
+	cfg.CipherSuites = getCipherList(tlsMin)
+
 	if flags.ClientCert != "" {
 		if flags.ClientKey == "" {
 			return nil, fmt.Errorf("-K is required when using -C")
@@ -621,4 +446,459 @@ func getTLSClientConfig(output io.Writer, flags *flagSet) (cfg *tls.Config, err 
 	cfg.ServerName = flags.TLSServerName
 
 	return cfg, nil
+}
+
+func parseEnvironmentVariables(flags *flagSet, env []string) {
+	for _, envVariableString := range env {
+		splits := strings.SplitN(envVariableString, "=", 2)
+		if len(splits) != 2 {
+			continue
+		}
+
+		key := splits[0]
+		value := splits[1]
+
+		switch key {
+		case "check_nsc_web_password", "CHECK_NSC_WEB_PASSWORD":
+			flags.Password = value
+		case "check_nsc_web_login", "CHECK_NSC_WEB_LOGIN":
+			flags.Login = value
+		case "check_nsc_web_timeout", "CHECK_NSC_WEB_TIMEOUT":
+			flags.Timeout = value
+		}
+	}
+}
+
+func parseFlagsAndEnvironment(osArgs, env []string, output io.Writer) (flags *flagSet, args []string) {
+	flags = &flagSet{}
+	flagSet := flag.NewFlagSet("check_nsc_web", flag.ContinueOnError)
+	flagSet.SetOutput(output)
+	flagSet.StringVar(&flags.URL, "u", "", "SNClient URL, for example https://10.1.2.3:8443")
+	flagSet.StringVar(&flags.Login, "l", "admin", "SNClient webserver login")
+	flagSet.StringVar(&flags.Password, "p", "", "SNClient webserver password")
+	flagSet.StringVar(&flags.APIVersion, "a", "legacy", "API version of SNClient (legacy or 1)")
+	flagSet.StringVar(&flags.Timeout, "t", "10:UNKNOWN", "Connection timeout in seconds")
+	flagSet.StringVar(&flags.ErrorExit, "e", "UNKNOWN", "Connection error exit code.")
+	flagSet.BoolVar(&flags.Verbose, "v", false, "Enable verbose output")
+	flagSet.BoolVar(&flags.VeryVerbose, "vv", false, "Enable very verbose output (and log directly to stdout)")
+	flagSet.BoolVar(&flags.JSON, "j", false, "Print out JSON response body")
+	flagSet.BoolVar(&flags.RawOutput, "r", false, "Print raw result without pre/post processing")
+	flagSet.BoolVar(&flags.Version, "V", false, "Print program version")
+	flagSet.BoolVar(&flags.Insecure, "k", false, "Insecure mode - skip TLS verification")
+	flagSet.StringVar(&flags.TLSMin, "tlsmin", "tls1.0", "Minimum tls version used to connect")
+	flagSet.StringVar(&flags.TLSMax, "tlsmax", "", "Maximum tls version used to connect")
+	flagSet.StringVar(&flags.TLSServerName, "tlshostname", "", "Use this servername when verifying tls server name")
+	flagSet.StringVar(&flags.ClientCert, "C", "", "Use client certificate (pem) to connect. Must provide -K as well")
+	flagSet.StringVar(&flags.ClientKey, "K", "", "Use client certificate key file to connect")
+	flagSet.StringVar(&flags.TLSCA, "ca", "", "Use certificate ca to verify server certificate")
+	flagSet.IntVar(&flags.Floatround, "f", -1, "Round performance data float values to this number of digits")
+	flagSet.StringVar(&flags.Config, "config", "", "Path to config file")
+	flagSet.Usage = func() {
+		fmt.Fprintf(output, "%s", USAGE)
+	}
+
+	flagSet.StringVar(&flags.Query, "query", "", "placeholder for query string from config file")
+
+	parseEnvironmentVariables(flags, env)
+
+	err := flagSet.Parse(osArgs)
+	if errors.Is(err, flag.ErrHelp) {
+		return nil, nil
+	}
+
+	if flags.VeryVerbose {
+		flags.Verbose = true
+		output = os.Stdout
+	}
+
+	if flags.Version {
+		fmt.Fprintf(output, "check_nsc_web v%s", VERSION)
+
+		return nil, nil
+	}
+
+	if flags.Config != "" {
+		err := parseFlagsFromFile(output, flags, flagSet, flags.Config)
+		if err != nil {
+			fmt.Fprintf(output, "failed to parse config file: %s\n", err.Error())
+
+			return nil, nil
+		}
+	}
+
+	if flags.URL == "" {
+		fmt.Fprintf(output, "UNKNOWN - missing required -u argument\n")
+		flagSet.Usage()
+
+		return nil, nil
+	}
+
+	if flags.Password == "" {
+		fmt.Fprintf(output, "UNKNOWN - missing required -p argument\n")
+		flagSet.Usage()
+
+		return nil, nil
+	}
+
+	args = flagSet.Args()
+	// Has there a flag "query" been provided in the config file? Transform it into slice and append it to Args()
+	if flags.Query != "" {
+		q := strings.Split(flags.Query, " ")
+		args = append(args, q...)
+	}
+
+	return flags, args
+}
+
+// parseFlagsFromFile parses flags from the file in path.
+// Same format as commandline argumens, newlines and lines beginning with a
+// "#" charater are ignored. Flags already set will be ignored.
+// converted fro namsral/flag.
+func parseFlagsFromFile(output io.Writer, flags *flagSet, flagSet *flag.FlagSet, path string) error {
+	// Extract arguments from file
+	file, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("open: %s", err.Error())
+	}
+	defer file.Close()
+
+	seen := map[string]bool{}
+	flagSet.Visit(func(flag *flag.Flag) {
+		seen[flag.Name] = true
+	})
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Ignore empty lines
+		if line == "" {
+			continue
+		}
+
+		// Ignore comments
+		if line[:1] == "#" {
+			continue
+		}
+
+		// Match `key=value` and `key value`
+		var name, value string
+		hasValue := false
+		for i, v := range line {
+			if v == '=' || v == ' ' {
+				hasValue = true
+				name, value = line[:i], line[i+1:]
+
+				break
+			}
+		}
+
+		if !hasValue {
+			name = line
+		}
+
+		// Ignore flagVal when already set; arguments have precedence over file
+		flagVal := flagSet.Lookup(name)
+		if flagVal == nil {
+			return fmt.Errorf("variable provided but not defined: %s", name)
+		}
+		if _, ok := seen[name]; ok {
+			if flags.Verbose {
+				fmt.Fprintf(output, "flag %s already set from commandline, skipping config file value\n", name)
+			}
+
+			continue
+		}
+
+		// hack to determine if flag is boolean
+		if strings.Contains(fmt.Sprintf("%#v", flagVal.Value), "flag.boolValue") { // special case: doesn't need an arg
+			if !hasValue {
+				// flag without value is a true bool
+				value = "true"
+			}
+			if err := flagVal.Value.Set(value); err != nil {
+				return fmt.Errorf("invalid boolean value %q for configuration variable %s: %s", value, name, err.Error())
+			}
+		} else {
+			if err := flagVal.Value.Set(value); err != nil {
+				return fmt.Errorf("invalid value %q for configuration variable %s: %s", value, name, err.Error())
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to parse config file: %s", err.Error())
+	}
+
+	return nil
+}
+
+func sendOutput(output io.Writer, flags *flagSet, queryResult *queryV1) int {
+	nagiosMessage := ""
+	nagiosPerfdata := []string{}
+
+	for _, line := range queryResult.Lines {
+		nagiosMessage += strings.TrimSpace(line.Message)
+
+		// iterate by sorted sortedPerfLabel, otherwise the order of performance label is different every time
+		sortedPerfLabel := make([]string, 0, len(line.Perf))
+
+		for k := range line.Perf {
+			sortedPerfLabel = append(sortedPerfLabel, k)
+		}
+
+		sort.Strings(sortedPerfLabel)
+
+		for _, perfName := range sortedPerfLabel {
+			perf := line.Perf[perfName]
+			// REFERENCE 'label'=value[UOM];[warn];[crit];[min];[max]
+			var (
+				val  string
+				uni  string
+				war  string
+				cri  string
+				mini string
+				maxi string
+			)
+
+			if perf.Value != nil {
+				switch perfVal := perf.Value.(type) {
+				case float64:
+					val = strconv.FormatFloat(perfVal, 'f', flags.Floatround, 64)
+				case string:
+					val = perfVal
+				default:
+					fmt.Fprintf(output, "UNKNOWN - json error: unknown value type: %T", perfVal)
+				}
+			} else {
+				continue
+			}
+
+			if perf.Unit != nil {
+				uni = (*(perf.Unit))
+			}
+
+			if perf.Warning != nil {
+				war = fmt.Sprintf("%v", perf.Warning)
+			}
+
+			if perf.Critical != nil {
+				cri = fmt.Sprintf("%v", perf.Critical)
+			}
+
+			if perf.Minimum != nil {
+				mini = strconv.FormatFloat(*(perf.Minimum), 'f', flags.Floatround, 64)
+			}
+
+			if perf.Maximum != nil {
+				maxi = strconv.FormatFloat(*(perf.Maximum), 'f', flags.Floatround, 64)
+			}
+
+			nagiosPerfdata = append(nagiosPerfdata,
+				fmt.Sprintf("'%s'=%s%s;%s;%s;%s;%s", perfName, val, uni, war, cri, mini, maxi),
+			)
+		}
+	}
+
+	if len(nagiosPerfdata) == 0 {
+		fmt.Fprintf(output, "%s %s", nagiosMessage, flags.Extratext)
+	} else {
+		fmt.Fprintf(output, "%s %s|%s", nagiosMessage, flags.Extratext, strings.TrimSpace(strings.Join(nagiosPerfdata, " ")))
+	}
+
+	return (queryResult.Result)
+}
+
+func buildHTTPClient(output io.Writer, flags *flagSet, timeout time.Duration) (*http.Client, error) {
+	tlsConfig, err := getTLSClientConfig(output, flags)
+	if err != nil {
+		return nil, err
+	}
+
+	hTransport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+		Dial: (&net.Dialer{
+			Timeout: timeout,
+		}).Dial,
+		ResponseHeaderTimeout: timeout,
+		TLSHandshakeTimeout:   timeout,
+		IdleConnTimeout:       timeout,
+	}
+	hClient := &http.Client{
+		Timeout:   timeout,
+		Transport: hTransport,
+	}
+
+	return hClient, nil
+}
+
+func extractResult(output io.Writer, flags *flagSet, contents []byte) (*queryV1, error) {
+	queryResult := &queryV1{}
+	if flags.APIVersion == "1" {
+		err := json.Unmarshal(contents, &queryResult)
+		if err != nil {
+			return nil, fmt.Errorf("json error: %s", err.Error())
+		}
+
+		return queryResult, nil
+	}
+
+	queryLeg := &queryLegacy{}
+	err := json.Unmarshal(contents, &queryLeg)
+	if err != nil {
+		return nil, fmt.Errorf("json error: %s", err.Error())
+	}
+
+	if len(queryLeg.Payload) == 0 {
+		if flags.Verbose {
+			fmt.Fprintf(output, "QUERY RESULT:\n%+v\n", queryLeg)
+		}
+
+		return nil, fmt.Errorf("resultpayload size is 0")
+	}
+
+	return queryLeg.toV1(), nil
+}
+
+func buildURL(flags *flagSet, args []string) (*url.URL, error) {
+	urlStruct, err := url.Parse(flags.URL)
+	if err != nil {
+		return nil, fmt.Errorf("url.Parse: %s", err.Error())
+	}
+
+	switch {
+	case flags.RawOutput:
+		if len(args) > 0 {
+			return nil, fmt.Errorf("no arguments supported in passthrough mode")
+		}
+	case len(args) == 0:
+		if !strings.HasSuffix(urlStruct.Path, "/") {
+			urlStruct.Path += "/"
+		}
+	default:
+		if flags.APIVersion == "1" {
+			urlStruct.Path += "/api/v1/queries/" + args[0] + "/commands/execute"
+		} else {
+			urlStruct.Path += "/query/" + args[0]
+		}
+	}
+
+	if len(args) > 1 {
+		urlStruct.RawQuery = buildQueryString(args)
+	}
+
+	return urlStruct, nil
+}
+
+func naemonName(state int) string {
+	switch state {
+	case 0:
+		return "OK"
+	case 1:
+		return "WARNING"
+	case 2:
+		return "CRITICAL"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+func naemonState(state string) int {
+	switch strings.ToLower(state) {
+	case "ok", "0":
+		return 0
+	case "warning", "1":
+		return 1
+	case "critical", "2":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func parseTimeout(flagTimeout string) (timeout time.Duration, timeoutExit int, err error) {
+	timeout = 10 * time.Second
+	timeoutExit = 3
+	if flagTimeout != "" {
+		fields := strings.Split(flagTimeout, ":")
+		if len(fields) > 1 {
+			timeoutExit = naemonState(fields[1])
+		}
+		sec, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return 0, 0, fmt.Errorf("cannot parse timeout: %s", err.Error())
+		}
+		timeout = time.Second * time.Duration(sec)
+	}
+
+	return
+}
+
+func buildQueryString(args []string) string {
+	var param strings.Builder
+	for i, arg := range args {
+		if i == 0 {
+			continue
+		} else if i > 1 {
+			param.WriteString("&")
+		}
+
+		p := strings.SplitN(arg, "=", 2)
+		if len(p) == 1 {
+			param.WriteString(url.QueryEscape(p[0]))
+		} else {
+			param.WriteString(url.QueryEscape(p[0]) + "=" + url.QueryEscape(p[1]))
+		}
+	}
+
+	return param.String()
+}
+
+func buildRequest(ctx context.Context, output io.Writer, query string, flags *flagSet) (req *http.Request, err error) {
+	req, err = http.NewRequestWithContext(ctx, http.MethodGet, query, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("request: %s", err.Error())
+	}
+
+	if flags.APIVersion == "1" && flags.Login != "" {
+		req.Header.Add("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(flags.Login+":"+flags.Password)))
+	} else {
+		req.Header.Add("Password", flags.Password)
+	}
+
+	if flags.Verbose {
+		dumpreq, err2 := httputil.DumpRequestOut(req, true)
+		if err2 != nil {
+			fmt.Fprintf(output, "REQUEST-ERROR:\n%s\n", err2.Error())
+		}
+
+		fmt.Fprintf(output, ">>>>>>REQUEST:\n%s\n>>>>>>\n", dumpreq)
+	}
+
+	// give server hint about timeout
+	timeout, _, _ := parseTimeout(flags.Timeout)
+	req.Header.Add("X-Nsc-Web-Timeout", fmt.Sprintf("%.2f", timeout.Seconds()))
+
+	return req, nil
+}
+
+func getCipherList(tlsmin uint16) (ciphers []uint16) {
+	// no cipher configurable with tls 1.3 or later
+	if tlsmin >= tls.VersionTLS13 {
+		return nil
+	}
+
+	for _, cipher := range tls.CipherSuites() {
+		ciphers = append(ciphers, cipher.ID)
+	}
+
+	// add insecure ciphers for tls1.2 or older
+	// nscp speaks tls1.2 but uses old ciphers excluded by go (>= 1.22) by default
+	if tlsmin <= tls.VersionTLS12 {
+		for _, cipher := range tls.InsecureCipherSuites() {
+			ciphers = append(ciphers, cipher.ID)
+		}
+	}
+
+	return
 }

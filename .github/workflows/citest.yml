@@ -1,33 +1,59 @@
-name: citest
+name: Builds
 on:
   push:
   pull_request:
-  schedule:
-    - cron: '30 4 * * 1'
+
 jobs:
   test:
-    strategy:
-      fail-fast: false
-      matrix:
-        go-version:
-          - 1.19.x
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
-    - uses:  abbbi/github-actions-tune@v1
+    - uses: actions/checkout@v6
     - name: Install Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v6
       with:
-        go-version: ${{ matrix.go-version }}
-    - uses: actions/checkout@v3
+        go-version-file: './go.mod'
     - run: make clean
-    #- run: make updatedeps
-    #  if: github.event_name != 'pull_request'
     - run: make citest
     - run: make
     - name: extract built binary
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       with:
         name: check_nsc_web-go${{ matrix.go-version }}
         path: check_nsc_web
     - run: make clean
+
+  integration:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v6
+    - name: Install Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: './go.mod'
+    - run: |
+          go work init
+          go work use .
+          $Env:GOWORK = "off"
+          go mod vendor
+          $Env:GOWORK = ""
+
+          # build check_nsc_web
+          go build -o ./check_nsc_web.exe cmd/check_nsc_web/main.go
+
+          # install nscp
+          Invoke-WebRequest -UseBasicParsing -Uri https://github.com/mickem/nscp/releases/download/0.5.2.35/NSCP-0.5.2.35-x64.msi -OutFile NSCP-0.5.2.35-x64.msi
+          Start-Process msiexec -Wait -ArgumentList '/i NSCP-0.5.2.35-x64.msi /qn CONF_WEB=1 NSCLIENT_PWD=test'
+
+          # activate version check
+          & 'C:\Program Files\NSClient++\nscp.exe' settings --activate-module CheckNSCP
+
+          # make sure it is started
+          net stop nscp
+          net start nscp
+
+          # give it some time to start
+          Start-Sleep -Seconds 5
+
+          # check if connection works
+          .\check_nsc_web.exe -k -p test -u https://127.0.0.1:8443                    ; if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\check_nsc_web.exe -k -p test -u https://127.0.0.1:8443 check_nscp_version ; if ($LASTEXITCODE -ne 0) { exit 1 }

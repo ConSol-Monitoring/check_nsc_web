@@ -1,4 +1,4 @@
-FROM golang:1.21.6-alpine  
+FROM golang:1-alpine
 
 RUN apk add --update --no-cache build-base make bash git && rm -rf /var/cache/apk/*
 RUN mkdir -p /go/src/app

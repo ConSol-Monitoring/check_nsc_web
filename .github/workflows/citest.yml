@@ -7,7 +7,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Install Go
       uses: actions/setup-go@v6
       with:
@@ -25,7 +25,7 @@ jobs:
   integration:
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - name: Install Go
       uses: actions/setup-go@v6
       with:

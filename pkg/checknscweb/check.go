@@ -675,7 +675,7 @@ func sendOutput(output io.Writer, flags *flagSet, queryResult *queryV1) int {
 			}
 
 			if perf.Unit != nil {
-				uni = (*(perf.Unit))
+				uni = (*perf.Unit)
 			}
 
 			if perf.Warning != nil {
@@ -687,14 +687,15 @@ func sendOutput(output io.Writer, flags *flagSet, queryResult *queryV1) int {
 			}
 
 			if perf.Minimum != nil {
-				mini = strconv.FormatFloat(*(perf.Minimum), 'f', flags.Floatround, 64)
+				mini = strconv.FormatFloat(*perf.Minimum, 'f', flags.Floatround, 64)
 			}
 
 			if perf.Maximum != nil {
-				maxi = strconv.FormatFloat(*(perf.Maximum), 'f', flags.Floatround, 64)
+				maxi = strconv.FormatFloat(*perf.Maximum, 'f', flags.Floatround, 64)
 			}
 
-			nagiosPerfdata = append(nagiosPerfdata,
+			nagiosPerfdata = append(
+				nagiosPerfdata,
 				fmt.Sprintf("'%s'=%s%s;%s;%s;%s;%s", perfName, val, uni, war, cri, mini, maxi),
 			)
 		}
@@ -706,7 +707,7 @@ func sendOutput(output io.Writer, flags *flagSet, queryResult *queryV1) int {
 		fmt.Fprintf(output, "%s %s|%s", nagiosMessage, flags.Extratext, strings.TrimSpace(strings.Join(nagiosPerfdata, " ")))
 	}
 
-	return (queryResult.Result)
+	return queryResult.Result
 }
 
 func buildHTTPClient(output io.Writer, flags *flagSet, timeout time.Duration) (*http.Client, error) {

@@ -481,6 +481,7 @@ func parseFlagsAndEnvironment(osArgs, env []string, output io.Writer) (flags *fl
 	flagSet.StringVar(&flags.ErrorExit, "e", "UNKNOWN", "Connection error exit code.")
 	flagSet.BoolVar(&flags.Verbose, "v", false, "Enable verbose output")
 	flagSet.BoolVar(&flags.VeryVerbose, "vv", false, "Enable very verbose output (and log directly to stdout)")
+	flagSet.BoolVar(&flags.VeryVerbose, "vvv", false, "Not used, same as -vv")
 	flagSet.BoolVar(&flags.JSON, "j", false, "Print out JSON response body")
 	flagSet.BoolVar(&flags.RawOutput, "r", false, "Print raw result without pre/post processing")
 	flagSet.BoolVar(&flags.Version, "V", false, "Print program version")

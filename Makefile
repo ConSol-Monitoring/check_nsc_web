@@ -222,6 +222,9 @@ version:
 
 check_nsc_web: build
 
+docker:
+	docker build -t dockerbuilder .
+	docker run -it --rm -e CGO_ENABLED=1 -v $(shell pwd):/go/src/app dockerbuilder make $(target)
 # just skip unknown make targets
 .DEFAULT:
 	@if [[ "$(MAKECMDGOALS)" =~ ^testf ]]; then \

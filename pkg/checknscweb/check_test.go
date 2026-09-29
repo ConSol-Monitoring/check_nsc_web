@@ -47,3 +47,14 @@ query check_cpu show-all
 	assert.Contains(t, buf.String(), "connect:")
 	assert.NotContains(t, buf.String(), "check_cpu")
 }
+
+func TestFormatPerfValue(t *testing.T) {
+	// Integer values must not be rounded or padded with decimals.
+	assert.Equal(t, "10", formatPerfValue(10, 2))
+	assert.Equal(t, "10", formatPerfValue(10, -1))
+
+	// Float values are rounded to the configured number of digits.
+	assert.Equal(t, "10.50", formatPerfValue(10.5, 2))
+	assert.Equal(t, "10.5", formatPerfValue(10.5, -1))
+	assert.Equal(t, "12.35", formatPerfValue(12.3456, 2))
+}

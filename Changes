@@ -1,5 +1,8 @@
 This file documents the revision history for check_nsc_web
 
+next:
+          - fix integer performance values beeing printed with fractions when using -f argument
+
 0.7.6    Fri Apr 10 16:12:37 CEST 2026
           - minimum go version is now 1.26
 

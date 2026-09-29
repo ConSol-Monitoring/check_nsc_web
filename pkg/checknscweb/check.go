@@ -29,6 +29,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -634,6 +635,17 @@ func parseFlagsFromFile(output io.Writer, flags *flagSet, flagSet *flag.FlagSet,
 	return nil
 }
 
+// formatPerfValue formats a performance data value. Integer values are
+// rendered without a fractional part, float values are rounded to
+// floatround digits.
+func formatPerfValue(value float64, floatround int) string {
+	if value == math.Trunc(value) {
+		return strconv.FormatFloat(value, 'f', -1, 64)
+	}
+
+	return strconv.FormatFloat(value, 'f', floatround, 64)
+}
+
 func sendOutput(output io.Writer, flags *flagSet, queryResult *queryV1) int {
 	nagiosMessage := ""
 	nagiosPerfdata := []string{}
@@ -665,7 +677,7 @@ func sendOutput(output io.Writer, flags *flagSet, queryResult *queryV1) int {
 			if perf.Value != nil {
 				switch perfVal := perf.Value.(type) {
 				case float64:
-					val = strconv.FormatFloat(perfVal, 'f', flags.Floatround, 64)
+					val = formatPerfValue(perfVal, flags.Floatround)
 				case string:
 					val = perfVal
 				default:

@@ -1,21 +1,28 @@
-# About check_nsc_web
+# About check_snclient
 
-**check_nsc_web** collects check results from NSClient++/SNClient agents using its REST API. It is an alternative to check_nrpe et al.
-check_nsc_web can be used with any monitoring tool, that can use Naemon/Nagios compatible plugins.
+**check_snclient** collects check results from NSClient++/SNClient agents using
+its REST API. It is an alternative to check_nrpe et al. check_snclient can be
+used with any monitoring tool, that can use Naemon/Nagios compatible plugins.
 
-To be easily portable, check_nsc_web is written in Go.
+To be easily portable, check_snclient is written in Go.
 
-check_nsc_web is released under the GNU GPL v3.
+check_snclient is released under the GNU GPL v3.
+
+## check_nsc_web
+
+This project was previously named `check_nsc_web` but stays 100% compatible.
 
 ## Building the binaries
 
 ### With docker
 
-```
+```bash
 make docker
 ```
+
 or to select a specific makefile target
-```
+
+```bash
 make docker target=citest
 ```
 
@@ -23,49 +30,49 @@ make docker target=citest
 
 ### Alive check
 
-```
-./check_nsc_web/main.go.go -k -p "password from nsclient.ini" -u "https://<SERVER_RUNNING_NSCLIENT>:8443"
-OK: NSClient API reachable on https://localhost:8443
+```bash
+./check_snclient/main.go.go -k -p "password from snclient.ini" -u "https://<SERVER_RUNNING_SNCLIENT>:8443"
+OK: SNClient API reachable on https://localhost:8443
 ```
 
 ### CPU usage
 
-```
-check_nsc_web -k -p "password from nsclient.ini" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_cpu
+```bash
+check_snclient -k -p "password from snclient.ini" -u "https://<SERVER_RUNNING_SNCLIENT>:8443" check_cpu
 OK: CPU load is ok.|'total 5m'=16%;80;90 'total 1m'=8%;80;90 'total 5s'=8%;80;90
 ```
 
 ### CPU usage with thresholds
 
-```
-check_nsc_web -k -p "password from nsclient.ini" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_cpu show-all "warning=load > 75" "critical=load > 90"
+```bash
+check_snclient -k -p "password from snclient.ini" -u "https://<SERVER_RUNNING_SNCLIENT>:8443" check_cpu show-all "warning=load > 75" "critical=load > 90"
 OK: 5m: 1%, 1m: 0%, 5s: 0%|'total 5m'=1%;75;90 'total 1m'=0%;75;90 'total 5s'=0%;75;90
 ```
 
 ### Service status
 
-```
-check_nsc_web -k -p "password from nsclient.ini" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_service "service=BvSshServer"
+```bash
+check_snclient -k -p "password from snclient.ini" -u "https://<SERVER_RUNNING_SNCLIENT>:8443" check_service "service=BvSshServer"
 OK: All 1 service(s) are ok.|'BvSshServer'=4;0;0
 ```
 
 ### Complex eventlog check
 
-```
-check_nsc_web -k -p "password from nsclient.ini" -u "https://<SERVER_RUNNING_NSCLIENT>:8443" check_eventlog "file=system" "filter=id=8000" "crit=count>0" "detail-syntax=\${message}" show-all "scan-range=-900m"
+```bash
+check_snclient -k -p "password from snclient.ini" -u "https://<SERVER_RUNNING_SNCLIENT>:8443" check_eventlog "file=system" "filter=id=8000" "crit=count>0" "detail-syntax=\${message}" show-all "scan-range=-900m"
 OK: No entries found|'count'=0;0;0 'problem_count'=0;0;0
 ```
 
 ### Reading parameters and queries from file
 
-```
-check_nsc_web -config ./sample.conf
+```bash
+check_snclient -config ./sample.conf
 OK: 5m: 0%, 1m: 0%, 5s: 0% |'total 5m'=0%;80;90;; 'total 1m'=0%;80;90;; 'total 5s'=0%;80;90;;
 ```
 
 Contents of ```sample.conf```:
 
-```
+```bash
 u https://127.0.0.1:28443
 p password
 k true
@@ -76,23 +83,23 @@ Please note, that everything after query will be **appended** to existing query 
 
 ## Program help
 
-```
+```txt
 Usage:
-  check_nsc_web [options] [query parameters]
+  check_snclient [options] [query parameters]
 
 Description:
-  check_nsc_web is a REST client for the NSClient++/SNClient webserver for querying
+  check_snclient is a REST client for the NSClient++/SNClient webserver for querying
   and receiving check information over HTTP(S).
 
 Example:
   connectivity check (parent service):
-  check_nsc_web -p "password" -u "https://<SERVER>:8443"
+  check_snclient -p "password" -u "https://<SERVER>:8443"
 
   check without arguments:
-  check_nsc_web -p "password" -u "https://<SERVER>:8443" check_cpu
+  check_snclient -p "password" -u "https://<SERVER>:8443" check_cpu
 
   check with arguments:
-  check_nsc_web -p "password" -u "https://<SERVER>:8443" check_drivesize disk=c
+  check_snclient -p "password" -u "https://<SERVER>:8443" check_drivesize disk=c
 
 Options:
   -u <url>                 SNClient/NSCLient++ URL, for example https://10.1.2.3:8443

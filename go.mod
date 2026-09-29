@@ -1,4 +1,4 @@
-module github.com/consol-monitoring/check_nsc_web
+module github.com/consol-monitoring/check_snclient
 
 go 1.26
 

@@ -1,6 +1,6 @@
 #!/usr/bin/make -f
 
-PROJECT=checknscweb
+PROJECT=checksnclient
 MAKE:=make
 SHELL:=bash
 GOVERSION:=$(shell \
@@ -64,7 +64,7 @@ build: vendor
 
 # run build watch, ex. with tracing: make build-watch -- -vv
 build-watch: vendor tools
-	set -x ; ls pkg/*/*.go cmd/*/*.go | entr -sr "$(MAKE) build && ./check_nsc_web $(filter-out $@,$(MAKECMDGOALS)) $(shell echo $(filter-out --,$(MAKEFLAGS)) | tac -s " ")"
+	set -x ; ls pkg/*/*.go cmd/*/*.go | entr -sr "$(MAKE) build && ./check_snclient $(filter-out $@,$(MAKECMDGOALS)) $(shell echo $(filter-out --,$(MAKEFLAGS)) | tac -s " ")"
 
 build-linux-amd64: vendor
 	set -e; for CMD in $(CMDS); do \
@@ -220,7 +220,7 @@ version:
 		if [ "v$$OLDVERSION" = "v$$NEWVERSION" -o "x$$NEWVERSION" = "x" ]; then echo "no changes"; exit 1; fi; \
 		sed -i -e 's/VERSION =.*/VERSION = "'$$NEWVERSION'"/g' pkg/$(PROJECT)/check.go
 
-check_nsc_web: build
+check_snclient: build
 
 docker:
 	docker build -t dockerbuilder .

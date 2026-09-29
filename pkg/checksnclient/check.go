@@ -1,4 +1,4 @@
-package checknscweb
+package checksnclient
 
 /*
  * This program is free software: you can redistribute it and/or modify
@@ -45,24 +45,24 @@ import (
 const VERSION = "0.7.6"
 
 const USAGE = `Usage:
-  check_nsc_web [options] [query parameters]
+  check_snclient [options] [query parameters]
 
 Description:
-  check_nsc_web is a REST client for the NSClient++/SNClient webserver for querying
+  check_snclient is a REST client for the NSClient++/SNClient webserver for querying
   and receiving check information over HTTP(S).
 
 Version:
-  check_nsc_web v` + VERSION + `
+  check_snclient v` + VERSION + `
 
 Example:
   connectivity check (parent service):
-  check_nsc_web -p "password" -u "https://<SERVER>:8443"
+  check_snclient -p "password" -u "https://<SERVER>:8443"
 
   check without arguments:
-  check_nsc_web -p "password" -u "https://<SERVER>:8443" check_cpu
+  check_snclient -p "password" -u "https://<SERVER>:8443" check_cpu
 
   check with arguments:
-  check_nsc_web -p "password" -u "https://<SERVER>:8443" check_drivesize disk=c
+  check_snclient -p "password" -u "https://<SERVER>:8443" check_drivesize disk=c
 
 Options:
   -u <url>                 SNClient/NSCLient++ URL, for example https://10.1.2.3:8443
@@ -87,14 +87,17 @@ TLS/SSL Options:
 Environment Variables:
   Command line options take predence over environment variables.
 
-  check_nsc_web_password   REST webserver password
-  CHECK_NSC_WEB_PASSWORD
-  check_nsc_web_login      REST webserver login
-  CHECK_NSC_WEB_LOGIN
-  check_nsc_web_timeout    Connection timeout in seconds
-                           Optional set timeout state: 0-3 or OK, WARNING, CRITICAL, UNKNOWN
-                           (default timeout state is UNKNOWN)
-  CHECK_NSC_WEB_TIMEOUT
+  check_snclient_password    REST webserver password
+  CHECK_SNCLIENT_PASSWORD
+  check_snclient_login       REST webserver login
+  CHECK_SNCLIENT_LOGIN
+  check_snclient_timeout     Connection timeout in seconds
+                             Optional set timeout state: 0-3 or OK, WARNING, CRITICAL, UNKNOWN
+                             (default timeout state is UNKNOWN)
+  CHECK_SNCLIENT_TIMEOUT
+
+  The old check_nsc_web_* / CHECK_NSC_WEB_* variables are deprecated
+  but still supported for backwards compatibility.
 
 Output Options:
   -h                       Print help
@@ -107,7 +110,7 @@ Output Options:
   -query <string>          Placeholder for query string from config file
 `
 
-// queryV1 represents the json response from snclient in version 1.
+// queryV1 represents the json response from snclient in api version 1.
 type queryV1 struct {
 	Command string       `json:"command"`
 	Lines   []resultLine `json:"lines"`
@@ -130,7 +133,7 @@ type perfLine struct {
 	Maximum  *float64    `json:"maximum,omitempty"`
 }
 
-// queryLegacy represents the json response from snclient using the legacy version.
+// queryLegacy represents the json response from snclient using the legacy api version.
 type queryLegacy struct {
 	Header struct {
 		SourceID string `json:"source_id"`
@@ -460,11 +463,14 @@ func parseEnvironmentVariables(flags *flagSet, env []string) {
 		value := splits[1]
 
 		switch key {
-		case "check_nsc_web_password", "CHECK_NSC_WEB_PASSWORD":
+		case "check_snclient_password", "CHECK_SNCLIENT_PASSWORD",
+			"check_nsc_web_password", "CHECK_NSC_WEB_PASSWORD":
 			flags.Password = value
-		case "check_nsc_web_login", "CHECK_NSC_WEB_LOGIN":
+		case "check_snclient_login", "CHECK_SNCLIENT_LOGIN",
+			"check_nsc_web_login", "CHECK_NSC_WEB_LOGIN":
 			flags.Login = value
-		case "check_nsc_web_timeout", "CHECK_NSC_WEB_TIMEOUT":
+		case "check_snclient_timeout", "CHECK_SNCLIENT_TIMEOUT",
+			"check_nsc_web_timeout", "CHECK_NSC_WEB_TIMEOUT":
 			flags.Timeout = value
 		}
 	}
@@ -472,7 +478,7 @@ func parseEnvironmentVariables(flags *flagSet, env []string) {
 
 func parseFlagsAndEnvironment(osArgs, env []string, output io.Writer) (flags *flagSet, args []string) {
 	flags = &flagSet{}
-	flagSet := flag.NewFlagSet("check_nsc_web", flag.ContinueOnError)
+	flagSet := flag.NewFlagSet("check_snclient", flag.ContinueOnError)
 	flagSet.SetOutput(output)
 	flagSet.StringVar(&flags.URL, "u", "", "SNClient URL, for example https://10.1.2.3:8443")
 	flagSet.StringVar(&flags.Login, "l", "admin", "SNClient webserver login")
@@ -514,7 +520,7 @@ func parseFlagsAndEnvironment(osArgs, env []string, output io.Writer) (flags *fl
 	}
 
 	if flags.Version {
-		fmt.Fprintf(output, "check_nsc_web v%s", VERSION)
+		fmt.Fprintf(output, "check_snclient v%s", VERSION)
 
 		return nil, nil
 	}
@@ -731,9 +737,9 @@ func buildHTTPClient(output io.Writer, flags *flagSet, timeout time.Duration) (*
 
 	hTransport := &http.Transport{
 		TLSClientConfig: tlsConfig,
-		Dial: (&net.Dialer{
+		DialContext: (&net.Dialer{
 			Timeout: timeout,
-		}).Dial,
+		}).DialContext,
 		ResponseHeaderTimeout: timeout,
 		TLSHandshakeTimeout:   timeout,
 		IdleConnTimeout:       timeout,
@@ -889,9 +895,12 @@ func buildRequest(ctx context.Context, output io.Writer, query string, flags *fl
 		fmt.Fprintf(output, ">>>>>>REQUEST:\n%s\n>>>>>>\n", dumpreq)
 	}
 
-	// give server hint about timeout
+	// give server hint about timeout; send the new name and keep the legacy
+	// name so that older servers reading X-Nsc-Web-Timeout still receive it
 	timeout, _, _ := parseTimeout(flags.Timeout)
-	req.Header.Add("X-Nsc-Web-Timeout", fmt.Sprintf("%.2f", timeout.Seconds()))
+	timeoutVal := fmt.Sprintf("%.2f", timeout.Seconds())
+	req.Header.Add("X-Snclient-Timeout", timeoutVal)
+	req.Header.Add("X-Nsc-Web-Timeout", timeoutVal)
 
 	return req, nil
 }

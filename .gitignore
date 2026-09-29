@@ -1,4 +1,4 @@
-/check_nsc_web
+/check_snclient
 *.log
 *.exe
 *.linux.amd64

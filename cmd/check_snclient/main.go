@@ -7,12 +7,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/consol-monitoring/check_nsc_web/pkg/checknscweb"
+	"github.com/consol-monitoring/check_snclient/pkg/checksnclient"
 )
 
 func main() {
 	output := bytes.NewBuffer(nil)
-	rc := checknscweb.Check(context.Background(), output, os.Args[1:], os.Environ())
+	rc := checksnclient.Check(context.Background(), output, os.Args[1:], os.Environ())
 	res := strings.TrimSpace(output.String())
 	fmt.Fprintf(os.Stdout, "%s\n", res)
 	os.Exit(rc)

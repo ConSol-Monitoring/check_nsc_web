@@ -1,45 +1,67 @@
-linters-settings:
-  gocritic:
-    enabled-tags:
-      - performance
-      - style
-      - experimental
-  gocyclo:
-    min-complexity: 35
-  funlen:
-    lines: 160
-    statements: 85
-  gomoddirectives:
-    replace-local: true
-  gocognit:
-    min-complexity: 45
-  govet:
-    enable-all: true
+version: "2"
 linters:
   enable-all: true
-  fast: false
   disable:
     - cyclop
     - depguard
-    - exhaustruct
     - err113
+    - exhaustruct
     - gochecknoglobals
     - gochecknoinits
-    - gofumpt
     - nonamedreturns
     - paralleltest
     - perfsprint
     - tagliatelle
     - testpackage
     - wsl
-    # deprecated
-    - tenv
+  settings:
+    funlen:
+      lines: 160
+      statements: 85
+    gocognit:
+      min-complexity: 45
+    gocritic:
+      enabled-tags:
+        - performance
+        - style
+        - experimental
+    gocyclo:
+      min-complexity: 35
+    gomoddirectives:
+      replace-local: true
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: (.+)\.go$
+        text: 'Magic number: 2, in'
+      - path: (.+)\.go$
+        text: 'Magic number: 3, in'
+      - path: (.+)\.go$
+        text: 'Magic number: 10, in'
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  max-same-issues: 0
   max-issues-per-linter: 0
-  exclude-use-default: true
-  exclude:
-    - "Magic number: 2, in"
-    - "Magic number: 3, in"
-    - "Magic number: 10, in"
-    - "fieldalignment: struct"
+  max-same-issues: 0
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

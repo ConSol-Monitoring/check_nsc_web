@@ -18,8 +18,8 @@ jobs:
     - name: extract built binary
       uses: actions/upload-artifact@v7
       with:
-        name: check_nsc_web-go${{ matrix.go-version }}
-        path: check_nsc_web
+        name: check_snclient-go${{ matrix.go-version }}
+        path: check_snclient
     - run: make clean
 
   integration:
@@ -37,8 +37,8 @@ jobs:
           go mod vendor
           $Env:GOWORK = ""
 
-          # build check_nsc_web
-          go build -o ./check_nsc_web.exe cmd/check_nsc_web/main.go
+          # build check_snclient
+          go build -o ./check_snclient.exe cmd/check_snclient/main.go
 
           # install nscp
           Invoke-WebRequest -UseBasicParsing -Uri https://github.com/mickem/nscp/releases/download/0.5.2.35/NSCP-0.5.2.35-x64.msi -OutFile NSCP-0.5.2.35-x64.msi
@@ -55,5 +55,5 @@ jobs:
           Start-Sleep -Seconds 5
 
           # check if connection works
-          .\check_nsc_web.exe -k -p test -u https://127.0.0.1:8443                    ; if ($LASTEXITCODE -ne 0) { exit 1 }
-          .\check_nsc_web.exe -k -p test -u https://127.0.0.1:8443 check_nscp_version ; if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\check_snclient.exe -k -p test -u https://127.0.0.1:8443                    ; if ($LASTEXITCODE -ne 0) { exit 1 }
+          .\check_snclient.exe -k -p test -u https://127.0.0.1:8443 check_nscp_version ; if ($LASTEXITCODE -ne 0) { exit 1 }

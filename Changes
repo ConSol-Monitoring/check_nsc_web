@@ -1,7 +1,10 @@
-This file documents the revision history for check_nsc_web
+This file documents the revision history for check_snclient (formerly check_nsc_web)
 
 next:
-          - fix integer performance values beeing printed with fractions when using -f argument
+          - rename binary to check_snclient
+          - add check_snclient_* / CHECK_SNCLIENT_* environment variables; the old check_nsc_web_* / CHECK_NSC_WEB_* variables are deprecated but still supported for backwards compatibility
+          - send client timeout as X-Snclient-Timeout header; the legacy X-Nsc-Web-Timeout header is still sent for backwards compatibility
+          - fix integer performance values being printed with fractions when using -f argument
 
 0.7.6    Fri Apr 10 16:12:37 CEST 2026
           - minimum go version is now 1.26
